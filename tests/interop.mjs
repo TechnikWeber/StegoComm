@@ -34,11 +34,11 @@ const topicsFor = (i) => [
   ["travel"],
 ][i % 8];
 
-for (const [i, [lang, level, par, profile]] of CASES.entries()) {
+for (const [i, [lang, level, par, profile, fmt]] of CASES.entries()) {
   const secret = secretFor(lang, level, profile);
-  const stem = `${lang}_${level}_${profile}`;
+  const stem = `${lang}_${level}_${profile}_${fmt}`;
   if (mode === "write") {
-    const enc = await encode(secret, key, lang, profile, level, par, topicsFor(i));
+    const enc = await encode(secret, key, lang, profile, level, par, topicsFor(i), fmt);
     fs.writeFileSync(path.join(dir, `js_${stem}.txt`), coverToText(enc));
   } else {
     const file = path.join(dir, `py_${stem}.txt`);

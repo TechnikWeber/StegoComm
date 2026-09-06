@@ -125,6 +125,8 @@
   .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:20px;
     background:#16324a;color:var(--blue);margin-left:8px}
   .pill.green{background:#0e2118;color:var(--green)}
+  .dimmed{opacity:.35;pointer-events:none}
+  .fmtnote{font-size:11.5px;color:var(--amber);margin-top:7px;line-height:1.45}
   .topics{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;background:#0A121A;
     border:1px solid var(--line);border-radius:10px;padding:10px 12px}
   .topics label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;
@@ -189,6 +191,16 @@
         </div>
 
         <div style="margin-top:14px">
+          <label class="field">Cover format</label>
+          <div class="seg" id="fmt">
+            <button data-v="sentences" aria-pressed="true">Sentences</button>
+            <button data-v="digits" aria-pressed="false">Numbers</button>
+            <button data-v="base32" aria-pressed="false">Base32</button>
+          </div>
+          <div class="fmtnote" id="fmtnote"></div>
+        </div>
+
+        <div style="margin-top:14px" id="topicBlock">
           <label class="field">Cover topics — which everyday vocabulary the sentences are built from</label>
           <div class="topics" id="topics"></div>
           <div class="afu">
@@ -208,7 +220,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="plausCard">
         <div class="slider-wrap">
           <div class="slider-head">
             <span class="name">Believability</span>
@@ -227,12 +239,12 @@
       <div class="hero">
         <div class="counter">
           <div class="big" id="sentCount">0</div>
-          <div class="cap">COVER SENTENCES</div>
+          <div class="cap" id="sentCap">COVER SENTENCES</div>
         </div>
         <div class="metrics">
           <div class="metric"><div class="n" id="chars">0</div><div class="k">CHARACTERS</div></div>
           <div class="metric"><div class="n blue" id="blocks">0</div><div class="k">BLOCKS (DATA+PARITY)</div></div>
-          <div class="metric"><div class="n" id="bps">0</div><div class="k">BITS / SENTENCE</div></div>
+          <div class="metric"><div class="n" id="bps">0</div><div class="k" id="bpsCap">BITS / SENTENCE</div></div>
           <div class="metric"><div class="n" id="expand">–</div><div class="k">EXPANSION</div></div>
           <div class="metric"><div class="n" id="time">–</div><div class="k">JS8CALL AIRTIME*</div></div>
         </div>
@@ -950,6 +962,72 @@ const ksManifest=(raw,mnonce,n)=>ksBytes(raw,"SM",mnonce,n);
 const ksBlock=(raw,bnonce,n)=>ksBytes(raw,"SB",bnonce,n);
 /* Padding bits at the end of a sentence run; different per block, ignored while decoding. */
 const ksPad=(raw,bnonce,idx,n)=>ksBytes(raw,"SP",Uint8Array.from([...bnonce, idx&0xff]),n);
+/* ---------------------------------------------------- compact formats
+   The same wire format rendered in a different alphabet. Encryption, parity,
+   the manifest and the per-block CRC are untouched, so error recovery and the
+   NACK still work exactly as they do for sentences — only the disguise is gone.
+   Roughly four to six times shorter, and it fools nobody: use it where the
+   channel is already private and only the size matters.
+
+   base32 uses Crockford's alphabet (no I, L, O or U, so nothing can be misread
+   as a digit) and survives being upper-cased, which matters on JS8Call. */
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const DIGITS = "0123456789";
+
+/* characters per manifest / per block, and the alphabet */
+const COMPACT_FORMATS = {
+  digits: {man:22, blk:25, alphabet:DIGITS},
+  base32: {man:15, blk:16, alphabet:CROCKFORD},
+};
+const FORMATS = ["sentences", ...Object.keys(COMPACT_FORMATS).sort()];
+const GROUP = 5;                      // characters per readable group
+
+function packCompact(frame, nbits, fmt, width){
+  const body=frame.subarray(0, nbits/8);
+  if(fmt==="digits"){
+    let v=0n; for(const b of body) v=(v<<8n)|BigInt(b);
+    return v.toString(10).padStart(width,"0");
+  }
+  const bits=bytesToBits(body).concat(new Array(width*5-nbits).fill(0));
+  let out="";
+  for(let i=0;i<width;i++){
+    let v=0; for(let b=0;b<5;b++) v=(v<<1)|bits[i*5+b];
+    out+=CROCKFORD[v];
+  }
+  return out;
+}
+function unpackCompact(text, nbits, fmt){
+  if(fmt==="digits"){
+    if(!/^[0-9]+$/.test(text)) return null;
+    let v=BigInt(text);
+    if(v>=(1n<<BigInt(nbits))) return null;
+    const out=new Uint8Array(nbits/8);
+    for(let i=out.length-1;i>=0;i--){ out[i]=Number(v & 255n); v>>=8n; }
+    return out;
+  }
+  const bits=[];
+  for(const ch of text){
+    const i=CROCKFORD.indexOf(ch);
+    if(i<0) return null;
+    for(let b=4;b>=0;b--) bits.push((i>>b)&1);
+  }
+  return bitsToBytes(bits.slice(0,nbits));
+}
+const groupChars = s => s.match(new RegExp(`.{1,${GROUP}}`,"g")).join(" ");
+/* Everything in the format's alphabet, whitespace and grouping dropped. */
+function compactChars(text, fmt){
+  const keep=COMPACT_FORMATS[fmt].alphabet;
+  return [...text.toUpperCase()].filter(c=>keep.includes(c)).join("");
+}
+/* A real compact cover is nothing but its alphabet. Sentences are full of
+   letters Crockford leaves out, so this rules them out cheaply. */
+function looksCompact(text, fmt){
+  const body=[...text.toUpperCase()].filter(c=>!/\s/.test(c));
+  if(!body.length) return false;
+  const keep=COMPACT_FORMATS[fmt].alphabet;
+  return body.filter(c=>keep.includes(c)).length >= 0.9*body.length;
+}
+
 /* ---------------------------------------------------- encode / decode
    Wire format v4: no plaintext header any more. The block index and block CRC
    live in the sentence bits; the fields that are constant per message (K, R,
@@ -1029,7 +1107,9 @@ function renderRun(lv, frame, nbits, pad, topics){
 
 /* `topics` only decides which words the cover is built from. It carries no
    data, so the receiver does not need to know or match it. */
-async function encode(secret, keyObj, lang, profile, level, parity, topics){
+async function encode(secret, keyObj, lang, profile, level, parity, topics, fmt){
+  fmt = fmt || "sentences";
+  if(!FORMATS.includes(fmt)) throw new Error(`unknown format ${fmt}`);
   const raw=keyObj.raw, lv=GRAMMARS[lang][level];
   topics=[...(topics && topics.length ? topics : DEFAULT_TOPICS)];
   const unknown=topics.filter(t=>!TOPIC_ORDER.includes(t));
@@ -1054,16 +1134,18 @@ async function encode(secret, keyObj, lang, profile, level, parity, topics){
     const mnonce=crypto.getRandomValues(new Uint8Array(MNONCE_LEN));
     const buf=await buildManifest(raw,K,R,ctlen,bnonce,mnonce,comp);
     const pad=await ksPad(raw,bnonce,0xff,padBytes);
-    return {lines:renderRun(lv,buf,MANIFEST_BITS,pad,topics)};
+    return {frame:buf, nbits:MANIFEST_BITS,
+            lines: fmt==="sentences" ? renderRun(lv,buf,MANIFEST_BITS,pad,topics) : null};
   };
   const sections=[await manifestSection()];
   for(let i=0;i<tot;i++){
     const buf=await buildFrame(raw,i,allb[i],bnonce);
     const pad=await ksPad(raw,bnonce,i,padBytes);
-    sections.push({lines:renderRun(lv,buf,FRAME_BITS,pad,topics), block:i});
+    sections.push({frame:buf, nbits:FRAME_BITS, block:i,
+                   lines: fmt==="sentences" ? renderRun(lv,buf,FRAME_BITS,pad,topics) : null});
   }
   sections.push(await manifestSection());
-  return {sections, K, R, tot, ctlen, level, lang, profile, comp, topics};
+  return {sections, K, R, tot, ctlen, level, lang, profile, comp, topics, fmt};
 }
 
 /* Cover as text — nothing but carrier sentences, no framing lines of any kind.
@@ -1073,8 +1155,15 @@ async function encode(secret, keyObj, lang, profile, level, parity, topics){
    prefixes your own automatically, and sending one that is not yours is
    illegal. */
 function coverToText(enc, sections){
+  const todo=sections||enc.sections;
+  const fmt=enc.fmt||"sentences";
+  if(fmt!=="sentences"){
+    const spec=COMPACT_FORMATS[fmt];
+    return todo.map(s=>groupChars(packCompact(s.frame, s.nbits, fmt,
+      s.nbits===FRAME_BITS ? spec.blk : spec.man))).join("\n");
+  }
   const parts=[];
-  for(const s of (sections||enc.sections))
+  for(const s of todo)
     for(const l of s.lines) parts.push(applyProfile(l, enc.profile));
   return parts.join("\n");
 }
@@ -1129,6 +1218,79 @@ async function findManifest(raw, toks){
   return null;
 }
 
+/* Blocks -> message. Shared by both cover formats: whichever way the bits
+   arrived, the parity, the erasure handling and the NACK work the same. */
+async function rebuild(keyObj, man, found, extra){
+  const K=man.K, R=man.R, ctlen=man.ctlen, comp=man.comp, tot=K+R;
+  const dataMissing=[]; for(let d=0;d<K;d++) if(!(d in found)) dataMissing.push(d);
+  const present=Object.keys(found).map(Number).sort((a,b)=>a-b);
+  let dataBlocks, recovered;
+  if(dataMissing.length===0){
+    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(found[d]); recovered=false;
+  } else if(present.length>=K){
+    const P=cauchy(R,K); const surv=present.slice(0,K);
+    const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
+    const Ainv=matInv(A,K);
+    if(!Ainv) return {...extra, ok:false, missing:dataMissing, tot, K, recovered:false,
+                      error:"Reconstruction failed."};
+    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
+    for(let j=0;j<CHUNK;j++){
+      const rhs=surv.map(idx=>found[idx][j]);
+      for(let d=0;d<K;d++){ let acc=0;
+        for(let m=0;m<K;m++) acc^=gmul(Ainv[d][m],rhs[m]); dataBlocks[d][j]=acc; }
+    }
+    recovered=true;
+  } else {
+    return {...extra, ok:false, missing:dataMissing, tot, K, recovered:false};
+  }
+  const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
+  const ct=padded.slice(0,ctlen);
+  try{ const msg=await decryptMsg(ct, keyObj, comp);
+    return {...extra, ok:true, message:msg, tot, K, R, recovered}; }
+  catch(e){ return {...extra, ok:false, tot, K,
+    error:"Decryption failed — wrong passphrase, or too many damaged blocks."}; }
+}
+
+/* Slide over the character stream the way the sentence path slides over words.
+   Returns null if this is not a cover in this format, so the caller can try the
+   next one. */
+async function decodeCompact(coverText, keyObj, fmt){
+  if(!looksCompact(coverText, fmt)) return null;
+  const raw=keyObj.raw, spec=COMPACT_FORMATS[fmt];
+  const s=compactChars(coverText, fmt), n=s.length;
+
+  let man=null; const spans=[];
+  let i=0;
+  while(i+spec.man<=n){
+    const buf=unpackCompact(s.slice(i,i+spec.man), MANIFEST_BITS, fmt);
+    if(buf){
+      const hit=await parseManifest(raw, buf);
+      if(hit){ if(!man) man=hit; spans.push([i,i+spec.man]); i+=spec.man; continue; }
+    }
+    i++;
+  }
+  if(!man) return null;
+
+  const blocked=new Set();
+  for(const [x,y] of spans) for(let k=x;k<y;k++) blocked.add(k);
+  const tot=man.K+man.R, found={};
+  i=0;
+  while(i+spec.blk<=n){
+    let clash=false;
+    for(let k=i;k<i+spec.blk;k++) if(blocked.has(k)){ clash=true; break; }
+    if(clash){ i++; continue; }
+    const buf=unpackCompact(s.slice(i,i+spec.blk), FRAME_BITS, fmt);
+    if(buf){
+      const fr=await parseFrame(raw, buf, man.bnonce);
+      if(fr && fr.idx<tot && !(fr.idx in found)){ found[fr.idx]=fr.payload; i+=spec.blk; continue; }
+    }
+    i++;
+  }
+  // A manifest alone could be a fluke; a manifest plus a block is not.
+  if(!Object.keys(found).length) return null;
+  return rebuild(keyObj, man, found, {fmt, lang:null, level:null, warning:null});
+}
+
 async function decode(coverText, keyObj){
   const raw=keyObj.raw;
   const toks=tokenize(coverText);
@@ -1139,12 +1301,20 @@ async function decode(coverText, keyObj){
       +"anything else costs the affected block."
     : null;
   const f=await findManifest(raw, toks);
-  if(!f) return {ok:false, warning, error: foreign.length
-    ? "No valid manifest found. The text contains characters this tool never produces ("
-      +foreign.join(" ")+"), so the transport path most likely altered it — the passphrase may well be fine."
-    : "No valid manifest found — wrong passphrase, or this is not cover text."};
+  if(!f){
+    /* Not sentences — try the compact formats before giving up. digits first,
+       since a digit string is also valid base32. */
+    for(const fmt of ["digits","base32"]){
+      const res=await decodeCompact(coverText, keyObj, fmt);
+      if(res) return res;
+    }
+    return {ok:false, warning, error: foreign.length
+      ? "No valid manifest found. The text contains characters this tool never produces ("
+        +foreign.join(" ")+"), so the transport path most likely altered it — the passphrase may well be fine."
+      : "No valid manifest found — wrong passphrase, or this is not cover text."};
+  }
   const {man, lang, level, spans}=f;
-  const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, comp=man.comp, tot=K+R;
+  const bnonce=man.bnonce, tot=man.K+man.R;
   const lv=GRAMMARS[lang][level];
   const nSent=sentencesFor(lv, FRAME_BITS), span=nSent*lv.tokens;
 
@@ -1165,41 +1335,23 @@ async function decode(coverText, keyObj){
     i++;
   }
 
-  const dataMissing=[]; for(let d=0;d<K;d++) if(!(d in found)) dataMissing.push(d);
-  const present=Object.keys(found).map(Number).sort((a,b)=>a-b);
-  let dataBlocks, recovered;
-  if(dataMissing.length===0){
-    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(found[d]); recovered=false;
-  } else if(present.length>=K){
-    const P=cauchy(R,K); const surv=present.slice(0,K);
-    const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
-    const Ainv=matInv(A,K);
-    if(!Ainv) return {ok:false, missing:dataMissing, tot, K, recovered:false,
-                      warning, error:"Reconstruction failed."};
-    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
-    for(let j=0;j<CHUNK;j++){
-      const rhs=surv.map(idx=>found[idx][j]);
-      for(let d=0;d<K;d++){ let acc=0;
-        for(let m=0;m<K;m++) acc^=gmul(Ainv[d][m],rhs[m]); dataBlocks[d][j]=acc; }
-    }
-    recovered=true;
-  } else {
-    return {ok:false, missing:dataMissing, tot, K, recovered:false, warning};
-  }
-
-  const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
-  const ct=padded.slice(0,ctlen);
-  try{ const msg=await decryptMsg(ct, keyObj, comp);
-    return {ok:true, message:msg, tot, K, recovered, R, lang, level, warning}; }
-  catch(e){ return {ok:false, tot, K, warning,
-    error:"Decryption failed — wrong passphrase, or too many damaged blocks."}; }
+  return rebuild(keyObj, man, found, {fmt:"sentences", lang, level, warning});
 }
 
 /* ==================================================================== UI */
 const TOPIC_LABEL={weather:"Weather & sky", home:"Home & kitchen", garden:"Garden & outdoors",
                    work:"Work & errands", travel:"Travel & road", tech:"Radio & tech"};
+const FMT_NOTE={
+  sentences:"",
+  digits:"No disguise: this is plainly encrypted data, just short. Same encryption, "
+         +"parity and error recovery — only the cover story is gone. Digits only, so "
+         +"it survives any transport and can be read out over the air.",
+  base32:"No disguise: this is plainly encrypted data, just short. Shortest of the "
+        +"three; Crockford's alphabet leaves out I, L, O and U so nothing can be "
+        +"misread, and it survives being upper-cased.",
+};
 const state={secret:"", pass:"", lang:"en", profile:"plain", parity:2, plaus:30,
-             topics:[...DEFAULT_TOPICS]};
+             topics:[...DEFAULT_TOPICS], fmt:"sentences"};
 let lastCover="";
 
 function levelFromPlaus(p){ return p<25?0 : p<50?1 : p<75?2 : 3; }
@@ -1236,8 +1388,12 @@ const $=id=>document.getElementById(id);
 let recomputeToken=0;
 async function recompute(){
   const my=++recomputeToken;
-  const {secret,pass,lang,profile,parity,plaus}=state;
-  if(!state.topics.length){
+  const {secret,pass,lang,profile,parity,plaus,fmt}=state;
+  const wordy = fmt==="sentences";
+  $("fmtnote").textContent=FMT_NOTE[fmt];
+  $("topicBlock").className = wordy ? "" : "dimmed";
+  $("plausCard").className = wordy ? "card" : "card dimmed";
+  if(wordy && !state.topics.length){
     $("cover").innerHTML='<span class="empty">Pick at least one cover topic.</span>';
     for(const id of ["sentCount","chars"]) $(id).textContent="0";
     $("blocks").textContent="0"; $("time").textContent="–"; $("expand").textContent="–";
@@ -1247,8 +1403,8 @@ async function recompute(){
   const lv=GRAMMARS[lang][level];
   $("plausLabel").textContent=LEVEL_LABEL[level];
   $("densityNote").textContent=LEVEL_DESC[level];
-  $("bps").textContent=lv.bits;
-  drawTrace(lv.bits);
+  $("bps").textContent=wordy?lv.bits:FRAME_BITS;
+  drawTrace(wordy?lv.bits:FRAME_BITS);
 
   const [verdict, note]=ratePassphrase(pass);
   const pn=$("passnote");
@@ -1265,46 +1421,45 @@ async function recompute(){
 
   let keyObj; try{ keyObj=await deriveKey(pass); }catch(e){ return; }
   if(my!==recomputeToken) return;
-  let enc; try{ enc=await encode(secret, keyObj, lang, profile, level, parity, state.topics); }
+  let enc; try{ enc=await encode(secret, keyObj, lang, profile, level, parity, state.topics, state.fmt); }
   catch(e){ cover.innerHTML='<span class="empty">Error: '+e.message+'</span>'; return; }
   if(my!==recomputeToken) return;
 
   lastCover=coverToText(enc);
 
-  // counts
-  let totalSent=0, totalChars=0;
-  for(const s of enc.sections){
-    totalSent+=s.lines.length;
-    for(const l of s.lines) totalChars+=l.length+1;
-  }
+  // Counts come from the finished cover, so they hold for every format.
+  const coverLines=lastCover.split("\n");
+  const totalSent=coverLines.length;
+  const totalChars=lastCover.length+1;          // join("\n") plus a trailing one
 
-  // preview (first 6 sections), the rest summarised
-  const MAXSHOW=6; let html="", shown=0;
-  for(const s of enc.sections){
-    if(shown>=MAXSHOW) break;
-    html+=s.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
-  }
-  if(enc.sections.length>shown) html+="\n… +"+(enc.sections.length-shown)+" more sections — "+totalSent+" sentences in total. The “Copy all” button gives you everything.";
-  cover.innerHTML=html;
+  // preview (first lines), the rest summarised
+  const MAXSHOW=30;
+  let html=coverLines.slice(0,MAXSHOW).join("\n")+"\n";
+  if(totalSent>MAXSHOW)
+    html+="\n… +"+(totalSent-MAXSHOW)+" more "+(wordy?"sentences":"blocks")
+        +" — "+totalSent+" in total. The “Copy all” button gives you everything.";
+  cover.textContent=html;
 
   $("sentCount").textContent=totalSent.toLocaleString("en");
+  $("sentCap").textContent = wordy ? "COVER SENTENCES" : "COVER BLOCKS";
+  $("bpsCap").textContent = wordy ? "BITS / SENTENCE" : "BITS / BLOCK";
   $("chars").textContent=totalChars.toLocaleString("en");
   $("blocks").textContent=enc.K+"+"+enc.R;
   if(profile==="js8call"){ const secs=Math.round(totalChars/0.9);
     const m=Math.floor(secs/60), s=secs%60; $("time").textContent=m>0?`${m}m ${s}s`:`${s}s`; }
   else $("time").textContent="instant";
 
-  showBudget(enc, lv, secret, totalSent, totalChars);
+  showBudget(enc, wordy?lv.bits*totalSent:enc.tot*FRAME_BITS+2*MANIFEST_BITS,
+             secret, totalSent, totalChars, wordy?lv.bits:FRAME_BITS, wordy);
 }
 
 /* How much do we inflate the message, and where does it all go?  Every figure
    here is exact rather than estimated — the encoder knows each field's size. */
-function showBudget(enc, lv, secret, totalSent, totalChars){
+function showBudget(enc, totalBits, secret, totalSent, totalChars, bitsPerUnit, wordy){
   const plainBytes=new TextEncoder().encode(secret).length;
   const plainChars=[...secret].length;
   const payloadBytes=enc.ctlen-28;                 // minus 12-byte iv and 16-byte tag
   const blockPad=enc.K*CHUNK-enc.ctlen;
-  const totalBits=totalSent*lv.bits;
   // What actually travels is the compressed payload, so that is the row that
   // gets the share -- otherwise a well-compressing message reads as >100%.
   const rows=[
@@ -1317,6 +1472,7 @@ function showBudget(enc, lv, secret, totalSent, totalChars){
     ["manifest (sent 2x)",  2*MANIFEST_BITS,                 false],
     ["sentence padding",    totalBits-(enc.tot*FRAME_BITS+2*MANIFEST_BITS), false],
   ].filter(r=>r[1]!==0);
+  const unit = wordy ? "sentences" : "blocks";
 
   const ratio=plainChars ? totalChars/plainChars : 0;
   $("expand").textContent=ratio>=10 ? Math.round(ratio)+"×" : ratio.toFixed(1)+"×";
@@ -1327,9 +1483,9 @@ function showBudget(enc, lv, secret, totalSent, totalChars){
     `<b>${plainChars} characters</b> (${plainBytes} bytes`
     +`${enc.comp?`, deflated to ${payloadBytes}`:""}) become `
     +`<b>${totalChars.toLocaleString("en")} characters</b> in `
-    +`${totalSent.toLocaleString("en")} sentences — that is <b>${ratio.toFixed(1)}×</b> `
-    +`as much text, at ${(totalChars/totalSent).toFixed(0)} characters per sentence `
-    +`carrying ${lv.bits} bits.<br>`
+    +`${totalSent.toLocaleString("en")} ${unit} — that is <b>${ratio.toFixed(1)}×</b> `
+    +`as much text, at ${(totalChars/totalSent).toFixed(0)} characters per `
+    +`${wordy?"sentence":"block"} carrying ${bitsPerUnit} bits.<br>`
     +`Of the <b>${totalBits.toLocaleString("en")} bits</b> actually sent, `
     +`<b>${(payloadBytes*8).toLocaleString("en")}</b> are your message `
     +`(${pct(payloadBytes*8).toFixed(0)}%). The rest buys secrecy, error recovery and framing:`
@@ -1376,9 +1532,11 @@ function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">
 
 /* ---- wiring ---- */
 function seg(id,key){ const el=$(id);
+  // keep the buttons in step with the state, so a changed default cannot lie
+  [...el.children].forEach(c=>c.setAttribute("aria-pressed", c.dataset.v===state[key]));
   el.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return;
     [...el.children].forEach(c=>c.setAttribute("aria-pressed", c===b)); state[key]=b.dataset.v; recompute(); }); }
-seg("lang","lang"); seg("profile","profile");
+seg("lang","lang"); seg("profile","profile"); seg("fmt","fmt");
 
 /* Topic checkboxes. The selection is sender-side only — it changes which words
    a cover is built from, never how it is read, so the two sides never have to

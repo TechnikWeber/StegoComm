@@ -122,6 +122,43 @@ behandelt sie als Erasure, was die Parity bis zu ihrer Grenze repariert — dar�
 kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind
 (Selective-Repeat-ARQ).
 
+### Kompaktformate — wenn du keine Tarnung brauchst
+
+Die Sätze sind dazu da, den Cover unauffällig zu machen. Ist der Kanal ohnehin
+privat und zählt nur die Größe, ist dieser Aufwand reine Verschwendung:
+**`--format digits` und `--format base32` geben dasselbe Wire-Format in einem
+kürzeren Alphabet aus.**
+
+| Format | Gleiche Nachricht | Alphabet | Bit pro Zeichen |
+|---|---|---|---|
+| `sentences` (Standard) | 889 Zeichen | Wörter | 0,5 – 0,9 |
+| `digits` | 263 Zeichen | `0`–`9` | 3,3 |
+| `base32` | 175 Zeichen | Crockford, Großbuchstaben | 5 |
+
+Vier- bis sechsmal kürzer. Verloren geht genau eine Sache: **die Tarnung.** Das
+sind sichtbar verschlüsselte Daten, und sie sehen auch so aus. Alles andere
+bleibt unangetastet — dieselbe Verschlüsselung, dieselbe Reed-Solomon-Parity,
+dieselbe Block-CRC, dasselbe Manifest, derselbe NACK. Ein unterwegs verlorener
+Block wird weiterhin aus der Parity rekonstruiert, und Leerzeichen wie
+Zeilenumbrüche werden weiterhin ignoriert — du kannst also als eine lange Kette
+oder in Gruppen einfügen.
+
+Dem Empfänger wird nichts mitgeteilt: der Decoder erkennt alle drei Formate
+selbst. Eine Seite kann Sätze senden und die andere Ziffern, ohne dass mehr
+abgesprochen wäre als die Passphrase.
+
+- **`digits`** ist das robusteste hier: nur `0`–`9`, übersteht also jeden
+  Transportweg und jede Groß-/Kleinschreibung und lässt sich über Funk oder
+  Telefon vorlesen.
+- **`base32`** nutzt Crockfords Alphabet, das I, L, O und U weglässt, damit
+  nichts als Ziffer missgelesen werden kann, und übersteht das Großschreiben für
+  JS8Call. Kürzestes der drei.
+
+```
+04037 82089 24965 64789 15437     ← digits
+9S5EW 5K71F HD248                 ← base32
+```
+
 ### Themen-Vokabulare
 
 Die Sätze werden aus einem von sechs Alltagsvokabularen gebaut — **Wetter &
@@ -274,6 +311,10 @@ python3 stegocomms.py encode --pass "gemeinsame-passphrase" --profile js8call \
 # ... nur aus gewählten Vokabularen, oder allein aus Funk & Technik
 python3 stegocomms.py encode --pass "..." --topics weather,garden "..."
 python3 stegocomms.py encode --pass "..." --afu --profile js8call "..."
+
+# ... oder ganz ohne Tarnung, 4- bis 6-mal kürzer
+python3 stegocomms.py encode --pass "..." --format digits "..."
+python3 stegocomms.py encode --pass "..." --format base32 "..."
 
 # Cover-Text von stdin dekodieren
 python3 stegocomms.py decode --pass "gemeinsame-passphrase"    # einfügen, dann Strg-D

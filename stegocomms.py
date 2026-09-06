@@ -862,15 +862,78 @@ def render_run(lv, frame, nbits, pad, topics):
 def sentences_for(lv, nbits):
     return math.ceil(nbits / lv["bits"])
 
+# --------------------------------------------------------- compact formats
+# The same wire format rendered in a different alphabet.  Encryption, parity,
+# the manifest and the per-block CRC are untouched, so error recovery and the
+# NACK still work exactly as they do for sentences -- only the disguise is gone.
+# Roughly four to six times shorter, and it fools nobody: use it where the
+# channel is already private and only the size matters.
+#
+# base32 uses Crockford's alphabet (no I, L, O or U, so nothing can be misread as
+# a digit) and survives being upper-cased, which matters on JS8Call.
+CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+DIGITS = "0123456789"
+
+# characters per manifest / per block, and the alphabet
+COMPACT_FORMATS = {
+    "digits": {"man": 22, "blk": 25, "alphabet": DIGITS},
+    "base32": {"man": 15, "blk": 16, "alphabet": CROCKFORD},
+}
+FORMATS = ["sentences"] + sorted(COMPACT_FORMATS)
+GROUP = 5              # characters per readable group
+
+def _pack(frame, nbits, fmt, width):
+    body = frame[:nbits // 8]
+    if fmt == "digits":
+        return str(int.from_bytes(body, "big")).zfill(width)
+    bits = bytes_to_bits(body) + [0] * (width * 5 - nbits)
+    return "".join(CROCKFORD[int("".join(str(b) for b in bits[i * 5:i * 5 + 5]), 2)]
+                   for i in range(width))
+
+def _unpack(text, nbits, fmt):
+    if fmt == "digits":
+        if not text.isdigit():
+            return None
+        v = int(text)
+        return v.to_bytes(nbits // 8, "big") if v < (1 << nbits) else None
+    bits = []
+    for ch in text:
+        i = CROCKFORD.find(ch)
+        if i < 0:
+            return None
+        bits += [(i >> b) & 1 for b in range(4, -1, -1)]
+    return bits_to_bytes(bits[:nbits])
+
+def _group(s):
+    return " ".join(s[i:i + GROUP] for i in range(0, len(s), GROUP))
+
+def compact_chars(text, fmt):
+    """Everything in the format's alphabet, whitespace and grouping dropped."""
+    keep = COMPACT_FORMATS[fmt]["alphabet"]
+    return "".join(c for c in text.upper() if c in keep)
+
+def looks_compact(text, fmt):
+    """A real compact cover is nothing but its alphabet.  Sentences are full of
+    letters Crockford leaves out, so this rules them out cheaply."""
+    body = [c for c in text.upper() if not c.isspace()]
+    if not body:
+        return False
+    keep = COMPACT_FORMATS[fmt]["alphabet"]
+    return sum(c in keep for c in body) >= 0.9 * len(body)
+
 # --------------------------------------------------------- encode / decode
 def apply_profile(txt, profile):
     """js8call = upper case (JS8Call's efficient character set), plain = lower
     case.  Casing carries no data; the decoder lower-cases everything anyway."""
     return txt.upper() if profile == "js8call" else txt.lower()
 
-def encode(secret, key, lang="de", profile="plain", level=1, parity=2, topics=None):
+def encode(secret, key, lang="de", profile="plain", level=1, parity=2, topics=None,
+           fmt="sentences"):
     """`topics` only decides which words the cover is built from.  It carries no
-    data, so the receiver does not need to know or match it."""
+    data, so the receiver does not need to know or match it.  `fmt` picks the
+    alphabet: cover sentences, or one of the compact ones."""
+    if fmt not in FORMATS:
+        raise ValueError(f"unknown format {fmt!r}; pick one of {', '.join(FORMATS)}")
     raw = key["raw"]
     lv = GRAMMARS[lang][level]
     topics = list(topics or DEFAULT_TOPICS)
@@ -909,18 +972,22 @@ def encode(secret, key, lang="de", profile="plain", level=1, parity=2, topics=No
         mnonce = os.urandom(MNONCE_LEN)
         buf = build_manifest(raw, K, R, ctlen, bnonce, mnonce, comp)
         pad = ks_pad(raw, bnonce, 0xff, pad_bytes)
-        return {"lines": render_run(lv, buf, MANIFEST_BITS, pad, topics)}
+        return {"frame": buf, "nbits": MANIFEST_BITS,
+                "lines": render_run(lv, buf, MANIFEST_BITS, pad, topics)
+                         if fmt == "sentences" else None}
 
     sections = [manifest_section()]
     for i in range(tot):
         buf = build_frame(raw, i, allb[i], bnonce)
         pad = ks_pad(raw, bnonce, i, pad_bytes)
-        sections.append({"lines": render_run(lv, buf, FRAME_BITS, pad, topics), "block": i})
+        sections.append({"frame": buf, "nbits": FRAME_BITS, "block": i,
+                         "lines": render_run(lv, buf, FRAME_BITS, pad, topics)
+                                  if fmt == "sentences" else None})
     sections.append(manifest_section())
 
     return {"sections": sections, "K": K, "R": R, "tot": tot, "ctlen": ctlen,
             "level": level, "lang": lang, "profile": profile, "topics": topics,
-            "comp": comp}
+            "comp": comp, "fmt": fmt}
 
 def cover_to_text(enc, sections=None):
     """Cover as text -- nothing but carrier sentences, no framing lines of any
@@ -929,8 +996,16 @@ def cover_to_text(enc, sections=None):
     case so it reads like an ordinary chat message.  Never put a callsign in
     here yourself: JS8Call prefixes your own callsign automatically, and
     transmitting one that is not yours is illegal."""
+    todo = sections if sections is not None else enc["sections"]
+    fmt = enc.get("fmt", "sentences")
+    if fmt != "sentences":
+        spec = COMPACT_FORMATS[fmt]
+        return "\n".join(
+            _group(_pack(s["frame"], s["nbits"], fmt,
+                         spec["blk"] if s["nbits"] == FRAME_BITS else spec["man"]))
+            for s in todo)
     parts = []
-    for s in (sections if sections is not None else enc["sections"]):
+    for s in todo:
         parts += [apply_profile(l, enc["profile"]) for l in s["lines"]]
     return "\n".join(parts)
 
@@ -998,6 +1073,100 @@ def _find_manifest(raw, toks):
                 return hit, lang, level, spans
     return None, None, None, []
 
+def _rebuild(key, man, found, extra):
+    """Blocks -> message.  Shared by both cover formats: whichever way the bits
+    arrived, the parity, the erasure handling and the NACK work the same."""
+    K, R, ctlen, comp = man["K"], man["R"], man["ctlen"], man["comp"]
+    tot = K + R
+    data_missing = [d for d in range(K) if d not in found]
+    present = sorted(found.keys())
+
+    if not data_missing:
+        data_blocks = [found[d] for d in range(K)]
+        recovered = False
+    elif len(present) >= K:
+        P = cauchy(R, K)
+        surv = present[:K]
+        A = [_unit(idx, K) if idx < K else list(P[idx - K]) for idx in surv]
+        Ainv = mat_inv(A, K)
+        if Ainv is None:
+            return dict(extra, ok=False, missing=data_missing, tot=tot, K=K,
+                        recovered=False, error="Reconstruction failed.")
+        data_blocks = [bytearray(CHUNK) for _ in range(K)]
+        for j in range(CHUNK):
+            rhs = [found[idx][j] for idx in surv]
+            for d in range(K):
+                acc = 0
+                for m in range(K):
+                    acc ^= gmul(Ainv[d][m], rhs[m])
+                data_blocks[d][j] = acc
+        data_blocks = [bytes(b) for b in data_blocks]
+        recovered = True
+    else:
+        return dict(extra, ok=False, missing=data_missing, tot=tot, K=K,
+                    recovered=False)
+
+    ct = b"".join(data_blocks)[:ctlen]
+    try:
+        msg = decrypt_msg(ct, key, comp)
+        return dict(extra, ok=True, message=msg, tot=tot, K=K, R=R,
+                    recovered=recovered)
+    except Exception:
+        return dict(extra, ok=False, tot=tot, K=K,
+                    error="Decryption failed -- wrong passphrase, or too many "
+                          "damaged blocks.")
+
+def _decode_compact(cover_text, key, fmt):
+    """Slide over the character stream the way the sentence path slides over
+    words.  Returns None if this is not a cover in this format, so the caller
+    can try the next one."""
+    if not looks_compact(cover_text, fmt):
+        return None
+    raw = key["raw"]
+    spec = COMPACT_FORMATS[fmt]
+    s = compact_chars(cover_text, fmt)
+    n = len(s)
+
+    man, spans = None, []
+    i = 0
+    while i + spec["man"] <= n:
+        buf = _unpack(s[i:i + spec["man"]], MANIFEST_BITS, fmt)
+        if buf is not None:
+            hit = parse_manifest(raw, buf)
+            if hit is not None:
+                if man is None:
+                    man = hit
+                spans.append((i, i + spec["man"]))
+                i += spec["man"]
+                continue
+        i += 1
+    if man is None:
+        return None
+
+    blocked = set()
+    for x, y in spans:
+        blocked.update(range(x, y))
+    tot = man["K"] + man["R"]
+    found = {}
+    i = 0
+    while i + spec["blk"] <= n:
+        if any(x in blocked for x in range(i, i + spec["blk"])):
+            i += 1
+            continue
+        buf = _unpack(s[i:i + spec["blk"]], FRAME_BITS, fmt)
+        if buf is not None:
+            fr = parse_frame(raw, buf, man["bnonce"])
+            if fr is not None and fr[0] < tot and fr[0] not in found:
+                found[fr[0]] = fr[1]
+                i += spec["blk"]
+                continue
+        i += 1
+    # A manifest alone could be a fluke; a manifest plus a block is not.
+    if not found:
+        return None
+    return _rebuild(key, man, found, {"fmt": fmt, "lang": None, "level": None,
+                                      "warning": None})
+
 def decode(cover_text, key):
     raw = key["raw"]
     toks = _tokens(cover_text)
@@ -1010,6 +1179,12 @@ def decode(cover_text, key):
                    "costs the affected block.")
     man, lang, level, spans = _find_manifest(raw, toks)
     if man is None:
+        # Not sentences -- try the compact formats before giving up.  digits
+        # first, since a digit string is also valid base32.
+        for fmt in ("digits", "base32"):
+            res = _decode_compact(cover_text, key, fmt)
+            if res is not None:
+                return res
         if foreign:
             return {"ok": False, "warning": warning,
                     "error": "No valid manifest found. The text contains characters "
@@ -1018,9 +1193,9 @@ def decode(cover_text, key):
                              "passphrase may well be fine."}
         return {"ok": False, "error": "No valid manifest found -- wrong passphrase, "
                                       "or this is not cover text."}
-    K, R, ctlen, bnonce = man["K"], man["R"], man["ctlen"], man["bnonce"]
-    comp = man["comp"]
-    tot = K + R
+
+    bnonce = man["bnonce"]
+    tot = man["K"] + man["R"]
     lv = GRAMMARS[lang][level]
     n_sent = sentences_for(lv, FRAME_BITS)
     span = n_sent * lv["tokens"]
@@ -1045,44 +1220,8 @@ def decode(cover_text, key):
                 continue
         i += 1
 
-    data_missing = [d for d in range(K) if d not in found]
-    present = sorted(found.keys())
-
-    if not data_missing:
-        data_blocks = [found[d] for d in range(K)]
-        recovered = False
-    elif len(present) >= K:
-        P = cauchy(R, K)
-        surv = present[:K]
-        A = [_unit(idx, K) if idx < K else list(P[idx - K]) for idx in surv]
-        Ainv = mat_inv(A, K)
-        if Ainv is None:
-            return {"ok": False, "missing": data_missing, "tot": tot, "K": K,
-                    "recovered": False, "error": "Reconstruction failed."}
-        data_blocks = [bytearray(CHUNK) for _ in range(K)]
-        for j in range(CHUNK):
-            rhs = [found[idx][j] for idx in surv]
-            for d in range(K):
-                acc = 0
-                for m in range(K):
-                    acc ^= gmul(Ainv[d][m], rhs[m])
-                data_blocks[d][j] = acc
-        data_blocks = [bytes(b) for b in data_blocks]
-        recovered = True
-    else:
-        return {"ok": False, "missing": data_missing, "tot": tot, "K": K,
-                "recovered": False, "warning": warning}
-
-    ct = b"".join(data_blocks)[:ctlen]
-    try:
-        msg = decrypt_msg(ct, key, comp)
-        return {"ok": True, "message": msg, "tot": tot, "K": K,
-                "recovered": recovered, "R": R, "lang": lang, "level": level,
-                "warning": warning}
-    except Exception:
-        return {"ok": False, "tot": tot, "K": K, "warning": warning,
-                "error": "Decryption failed -- wrong passphrase, or too many "
-                         "damaged blocks."}
+    return _rebuild(key, man, found, {"fmt": "sentences", "lang": lang,
+                                      "level": level, "warning": warning})
 
 def nack_string(res):
     if not res.get("missing"):
@@ -1207,6 +1346,40 @@ def _selftest():
           + (f" -- FAILED: {bad}" if bad else ""))
     ok_all &= not bad
 
+    # the compact formats carry the same wire format in a shorter alphabet, so
+    # every guarantee has to survive the change of clothes
+    probe = "Meet at six"
+    sizes = {}
+    for fmt in FORMATS:
+        e = encode(probe, key, lang="en", level=3, parity=2, fmt=fmt)
+        cover = cover_to_text(e)
+        sizes[fmt] = len(cover)
+        checks = {
+            "round-trip": decode(cover, key).get("message") == probe,
+            "detected": decode(cover, key).get("fmt") == fmt,
+            "2 blocks lost, parity rebuilds":
+                decode(cover_to_text(e, [x for x in e["sections"]
+                                         if x.get("block") is None or x["block"] >= 2]),
+                       key).get("message") == probe,
+            "3 blocks lost, NACK":
+                bool(decode(cover_to_text(e, [x for x in e["sections"]
+                                              if x.get("block") is None or x["block"] >= 3]),
+                            key).get("missing")),
+            "leading manifest lost":
+                decode(cover_to_text(e, e["sections"][1:]), key).get("message") == probe,
+            "whitespace ignored":
+                decode(" ".join(cover.split()).replace(" ", "")
+                       if fmt != "sentences" else cover, key).get("message") == probe,
+        }
+        bad = [n for n, good in checks.items() if not good]
+        print(f"[format {fmt}] {len(cover):5} chars  "
+              + ("all guarantees hold" if not bad else "FAILED: " + ", ".join(bad)))
+        ok_all &= not bad
+    shrink = sizes["sentences"] / max(sizes["digits"], sizes["base32"], 1)
+    print(f"[format sizes] compact is {sizes['sentences'] / sizes['digits']:.1f}x "
+          f"(digits) and {sizes['sentences'] / sizes['base32']:.1f}x (base32) shorter")
+    ok_all &= shrink > 2
+
     # a clean cover must NOT be flagged
     r7 = decode(cover_to_text(enc), key)
     print(f"[clean cover] ok: {r7.get('ok')} warned: {bool(r7.get('warning'))} "
@@ -1242,6 +1415,10 @@ def _main():
                          + " (default: everything but tech)")
     pe.add_argument("--afu", action="store_true",
                     help="amateur-radio mode: use the tech vocabulary only")
+    pe.add_argument("--format", dest="fmt", choices=FORMATS, default="sentences",
+                    help="cover alphabet: sentences (default, the only one that "
+                         "disguises anything), digits or base32 (4-6x shorter, "
+                         "no disguise at all)")
     pe.add_argument("--profile", choices=["js8call", "plain"], default="plain",
                     help="plain=lower case (default), js8call=upper case")
 
@@ -1270,7 +1447,8 @@ def _main():
         msg = " ".join(args.message) if args.message else sys.stdin.read().rstrip("\n")
         topics = AFU_TOPICS if args.afu else [t.strip() for t in args.topics.split(",") if t.strip()]
         enc = encode(msg, key, lang=args.lang, profile=args.profile,
-                     level=args.level, parity=args.parity, topics=topics)
+                     level=args.level, parity=args.parity, topics=topics,
+                     fmt=args.fmt)
         print(cover_to_text(enc))
     elif args.cmd == "decode":
         res = decode(sys.stdin.read(), key)

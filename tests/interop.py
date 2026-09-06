@@ -15,14 +15,14 @@ PASS = "harbour-lantern-quiet-seven"
 
 # Must stay identical to CASES in tests/engine.mjs.
 CASES = [
-    ("de", 0, 2, "plain"),
-    ("de", 1, 2, "js8call"),
-    ("de", 2, 1, "plain"),
-    ("de", 3, 2, "plain"),
-    ("en", 0, 2, "js8call"),
-    ("en", 1, 1, "plain"),
-    ("en", 2, 2, "js8call"),
-    ("en", 3, 2, "plain"),
+    ("de", 0, 2, "plain", "sentences"),
+    ("de", 1, 2, "js8call", "sentences"),
+    ("de", 2, 1, "plain", "digits"),
+    ("de", 3, 2, "plain", "base32"),
+    ("en", 0, 2, "js8call", "sentences"),
+    ("en", 1, 1, "plain", "base32"),
+    ("en", 2, 2, "js8call", "digits"),
+    ("en", 3, 2, "plain", "sentences"),
 ]
 
 
@@ -55,13 +55,13 @@ def main():
     key = sc.derive_key(PASS)
 
     failures = 0
-    for i, (lang, level, par, profile) in enumerate(CASES):
+    for i, (lang, level, par, profile, fmt) in enumerate(CASES):
         secret = secret_for(lang, level, profile)
-        stem = f"{lang}_{level}_{profile}"
+        stem = f"{lang}_{level}_{profile}_{fmt}"
         if mode == "write":
             enc = sc.encode(secret, key, lang=lang, profile=profile,
                             level=level, parity=par,
-                            topics=TOPIC_SETS[i % len(TOPIC_SETS)])
+                            topics=TOPIC_SETS[i % len(TOPIC_SETS)], fmt=fmt)
             with open(os.path.join(out, f"py_{stem}.txt"), "w", encoding="utf-8") as fh:
                 fh.write(sc.cover_to_text(enc))
         else:

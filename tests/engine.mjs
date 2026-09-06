@@ -44,12 +44,12 @@ export function rewrap(text, width) {
 }
 
 export const CASES = [
-  ["de", 0, 2, "plain"],
-  ["de", 1, 2, "js8call"],
-  ["de", 2, 1, "plain"],
-  ["de", 3, 2, "plain"],
-  ["en", 0, 2, "js8call"],
-  ["en", 1, 1, "plain"],
-  ["en", 2, 2, "js8call"],
-  ["en", 3, 2, "plain"],
+  ["de", 0, 2, "plain", "sentences"],
+  ["de", 1, 2, "js8call", "sentences"],
+  ["de", 2, 1, "plain", "digits"],
+  ["de", 3, 2, "plain", "base32"],
+  ["en", 0, 2, "js8call", "sentences"],
+  ["en", 1, 1, "plain", "base32"],
+  ["en", 2, 2, "js8call", "digits"],
+  ["en", 3, 2, "plain", "sentences"],
 ];

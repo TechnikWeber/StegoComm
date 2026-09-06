@@ -120,6 +120,41 @@ The receiver reverses everything; a per-block CRC detects damaged blocks and
 treats them as erasures, which parity repairs up to its limit — beyond that you
 get a **NACK** listing exactly which blocks to resend (selective-repeat ARQ).
 
+### Compact formats — when you do not need a disguise
+
+The sentences exist to make the cover unremarkable. If the channel is already
+private and only the size matters, that cost is pure waste: **`--format digits`
+and `--format base32` render the same wire format in a shorter alphabet.**
+
+| Format | Same message | Alphabet | Bits per character |
+|---|---|---|---|
+| `sentences` (default) | 889 chars | words | 0.5 – 0.9 |
+| `digits` | 263 chars | `0`–`9` | 3.3 |
+| `base32` | 175 chars | Crockford's, upper case | 5 |
+
+Four to six times shorter. What you lose is exactly one thing: **the disguise.**
+This is plainly encrypted data and it looks like it. Everything else is
+untouched — same encryption, same Reed-Solomon parity, same per-block CRC, same
+manifest, same NACK. A block lost in transit is still rebuilt from parity, and
+whitespace and line breaks are still ignored, so you can paste it back as one
+long chain or in groups.
+
+The receiver is told nothing: the decoder recognises all three formats by itself,
+so one side can send sentences and the other digits with no agreement beyond the
+passphrase.
+
+- **`digits`** is the most robust thing here: nothing but `0`–`9`, so it survives
+  any transport, any case folding, and can be read out over the air or down a
+  phone.
+- **`base32`** uses Crockford's alphabet, which leaves out I, L, O and U so
+  nothing can be misread as a digit, and survives being upper-cased for JS8Call.
+  Shortest of the three.
+
+```
+04037 82089 24965 64789 15437     ← digits
+9S5EW 5K71F HD248                 ← base32
+```
+
 ### Cover topics
 
 The sentences are built from one of six everyday vocabularies — **weather & sky,
@@ -269,6 +304,10 @@ python3 stegocomms.py encode --pass "your-shared-passphrase" --profile js8call \
 # ... drawing only on chosen vocabularies, or on radio & tech alone
 python3 stegocomms.py encode --pass "..." --topics weather,garden "..."
 python3 stegocomms.py encode --pass "..." --afu --profile js8call "..."
+
+# ... or with no disguise at all, 4-6x shorter
+python3 stegocomms.py encode --pass "..." --format digits "..."
+python3 stegocomms.py encode --pass "..." --format base32 "..."
 
 # decode cover text from stdin
 python3 stegocomms.py decode --pass "your-shared-passphrase"    # paste, then Ctrl-D
