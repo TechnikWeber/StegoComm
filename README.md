@@ -2,6 +2,8 @@
 
 # StegoComm
 
+[![tests](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml/badge.svg)](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml)
+
 **A proof-of-concept covert, encrypted messaging channel that hides ciphertext inside innocuous-looking chatter.**
 
 Two interoperable implementations that speak the exact same wire format:
@@ -27,7 +29,7 @@ four are ordinary, well-understood cryptography.
         "Meet Sunday 6pm at the old harbour"
                      │
                      │   1.  SQUEEZE
-                     │       deflate — fewer bytes to hide
+                     │       deflate, but only if it actually shrinks
                      ▼
         ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                      │
@@ -72,7 +74,7 @@ each word's position in the same lists and gets the bits straight back.
 
 | Layer | Solves |
 |---|---|
-| deflate | fewer bytes to hide |
+| deflate (when it helps) | fewer bytes to hide |
 | AES-256-GCM | nobody can read it, and tampering is detected |
 | Reed-Solomon | lost blocks rebuilt without asking for a resend |
 | the grammar | it does not look like a message |
@@ -89,7 +91,7 @@ The disguise buys you that nobody looks in the first place.
 
 You have a secret message. StegoComm:
 
-1. **compresses** it (deflate),
+1. **compresses** it (deflate) — but only when that actually shrinks it; deflate costs six bytes of framing, which a short message never earns back,
 2. **encrypts** it with AES-256-GCM (key derived from a shared passphrase via PBKDF2-HMAC-SHA256, 200 000 iterations),
 3. splits the ciphertext into 8-byte **blocks** and adds **Reed-Solomon parity blocks** (GF(256), Cauchy matrix) so lost or corrupted blocks can be reconstructed without asking for a resend,
 4. **encodes each block as ordinary-looking sentences** — weather and small-talk in German or English — where the *choice of words* carries the bits,
@@ -152,12 +154,12 @@ The receiver does not need to be told which level you used.
 
 Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, 2 parity blocks):
 
-| Level | Feel | Bits/sentence | Sentences | Characters | Example |
+| Level | Feel | Bits/sentence | Sentences | Characters | Examples |
 |---|---|---|---|---|---|
-| 0 | very believable | 10 | 104 | 2657 | `das band ist stetig hier` |
-| 1 | believable (default) | 13 | 89 | 2267 | `die antenne ist mild vorn` |
-| 2 | terse | 20 | 52 | 2104 | `das radio ist stetig und der zaun fertig` |
-| 3 | very terse | 28 | 39 | 1439 | `kaffee hart turm langsam gleich warm` |
+| 0 | very believable | 11 | 102 | 2628 | `das radio ist fein heute` · `heute ist die antenne mau` |
+| 1 | believable (default) | 14 | 78 | 1964 | `das tal ist zaeh jetzt` · `nachts ist der frost klar` |
+| 2 | terse | 21 | 52 | 2087 | `die leitung ist krumm und das netz frisch` |
+| 3 | very terse | 29 | 39 | 1469 | `kueche spitz stecker langsam frueh trueb` |
 
 Higher levels do **not** bolt extra clauses onto the sentence — that was the v3
 design, and it backfired: a tacked-on clause bought ~5 bits but cost ~20
@@ -171,6 +173,12 @@ gets longer — and the character count finally falls with the level.
 Note what the slider actually buys you: on JS8Call, airtime tracks *characters*,
 so the level genuinely halves transmission time. In a chat transport it mostly
 buys you fewer messages to paste.
+
+Each level offers **several sentence shapes** of identical word count and bit
+width, and which one is used is itself part of the payload — so the variety is
+free: it adds one bit per sentence rather than costing anything. Without it every
+line of a long cover had the same shape, which is what gives a text cover away to
+a human reader faster than anything else.
 
 Neither the language nor the level is stored anywhere — the decoder simply tries
 all 8 (language, level) combinations and lets the manifest's CRC16 decide.
@@ -231,15 +239,24 @@ independent implementations agree.
 
 ### About the passphrase
 
-Anything goes: one character or five hundred, umlauts, emoji, quotes,
-backslashes, tabs. PBKDF2 turns any UTF-8 text into a 32-byte key. Three things
-to know:
+Any UTF-8 text works — umlauts, emoji, quotes, backslashes, tabs — because
+PBKDF2 turns whatever you type into a 32-byte key. But since the entire security
+of the tool hangs on this one string, both the CLI and the browser tool now
+**refuse to encode below 12 characters** and tell you when what you typed is
+weaker than it looks. (`--allow-weak-pass` overrides the CLI check; decoding is
+never restricted, or you could not read your own old messages.)
+
+**What a good passphrase looks like:** four or five unrelated words, e.g.
+`harbour-lantern-quiet-seven`. Length beyond that matters less than
+unpredictability — `aaaaaaaaaaaaaaaaaaaa` is twenty characters and worthless.
+The check reports what is actually checkable (length, variety, whether it is a
+single word); no meter can tell whether *you* picked it at random, and it says so.
+
+Two further things to know:
 
 - **Nothing is trimmed.** `"secret"` and `"secret "` are different keys. A stray
   space picked up while copying will break decryption.
 - **The field is not masked** (`type="text"`), so the passphrase is visible on screen.
-- **Length does not matter, guessability does.** `"dog"` works perfectly well
-  technically and is worthless anyway — the entire security of the tool hangs on it.
 
 ---
 
@@ -263,19 +280,19 @@ what it cannot parse.
 
 ---
 
-## Wire format v4
+## Wire format v5
 
-The current wire format is **v4**. Its grammar contains no punctuation at all,
+The current wire format is **v5**. Its grammar contains no punctuation at all,
 and the decoder reads a stream of words rather than lines, normalising away
-casing, callsign/quote prefixes, punctuation and whitespace before parsing. It
-differs from v3 in three ways: the plaintext per-block header is gone (framing
-now lives in the covert channel plus a masked manifest), the believability levels
-trade density for *word choice* instead of sentence length, and German nouns
-carry their correct article (`der Kaffee` instead of v3's blanket `das kaffee`).
-The PBKDF2 salt changed to `stegocomm/v4/pbkdf2`, so **v3 covers cannot be
-decoded by v4** — the format is incompatible anyway. Both implementations were
-changed in lockstep and verified against each other in both directions across all
-4 levels × 2 languages × 2 profiles.
+casing, callsign/quote prefixes, punctuation and whitespace before parsing.
+Each level carries several sentence shapes, and deflate is applied only when it
+actually shrinks the message — it costs six bytes of framing, which a short
+message never earns back, so the manifest records which was used. The salt is
+`stegocomm/v5/pbkdf2`; **covers from earlier versions cannot be decoded**, and
+the format is incompatible anyway.
+
+Both implementations are changed in lockstep and verified against each other in
+both directions on every push — see `tests/`.
 
 ### How the layers stack
 
@@ -295,12 +312,43 @@ costs one block, not the rest of the message.
 ### Known limits
 
 - A message is capped at 254 blocks, i.e. roughly 2 kB of ciphertext.
-- Every sentence at a given level follows one template, so a long cover is
-  structurally repetitive. That was true in v3 as well and is a believability
-  ceiling, not a correctness problem.
+- A cover is 40× to 70× the length of the message. Most of that is inherent —
+  the grammar carries 0.4 to 0.8 bits per character — and the browser tool now
+  breaks the rest down for you field by field. Larger blocks would cut the
+  per-block framing, but they were measured and rejected: the parity blocks grow
+  with the block size, so 8 bytes turned out to be the smallest cover at every
+  message length tried.
+- Each level has only a handful of sentence shapes and one vocabulary, so a long
+  cover is still structurally repetitive. This is the main believability ceiling
+  that remains.
 - Block detection rests on an 8-bit CRC, so a random sentence run has a ~1/256
   chance of being mistaken for a block. A false hit corrupts the payload and the
   GCM tag then rejects the message rather than returning wrong plaintext.
+
+---
+
+## Running the tests
+
+The two implementations must agree byte for byte, so the cross-check is the part
+that matters — a change to only one of them fails here. This runs on every push
+via GitHub Actions, and locally with:
+
+```bash
+./tests/run_all.sh
+```
+
+It runs each engine's own selftest (round-trip, parity recovery, NACK, manifest
+redundancy, resynchronisation, transport damage, grammar consistency), then
+encodes with each implementation and decodes with the other across all levels,
+languages and profiles, and finally checks that the passphrase rule is identical
+on both sides. `tests/engine.mjs` loads the browser engine straight out of
+`cover_studio.html`, so the tested code is the shipped code.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ---
 

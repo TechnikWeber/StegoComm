@@ -125,6 +125,18 @@
   .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:20px;
     background:#16324a;color:var(--blue);margin-left:8px}
   .pill.green{background:#0e2118;color:var(--green)}
+  .passnote{font-size:12px;margin-top:7px;line-height:1.5}
+  .passnote.reject{color:var(--danger)} .passnote.weak{color:var(--amber)}
+  .passnote.ok{color:var(--blue)} .passnote.good{color:var(--green)}
+  .budget{margin-top:12px;border-top:1px solid var(--line);padding-top:11px;
+    font-size:12px;color:var(--muted);line-height:1.6}
+  .budget b{color:var(--text);font-weight:500}
+  .budget table{border-collapse:collapse;margin-top:8px;font-family:var(--mono);font-size:11.5px}
+  .budget td{padding:1px 12px 1px 0;white-space:nowrap}
+  .budget td.num{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  .budget td.bar{width:100%;padding-right:0}
+  .budget i{display:inline-block;height:8px;border-radius:2px;background:var(--line);vertical-align:middle}
+  .budget tr.hi i{background:var(--amber)}
   .result .warn{display:block;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
     color:var(--amber);font-size:12.5px;line-height:1.5}
 </style>
@@ -143,7 +155,9 @@
         <textarea id="secret" placeholder="Type your plaintext here …">Meet Sunday 6pm at the old harbour.</textarea>
 
         <label class="field" for="pass" style="margin-top:14px">Key / passphrase (identical on both sides)</label>
-        <input class="txt" id="pass" type="text" spellcheck="false" value="correct-horse-battery-staple">
+        <input class="txt" id="pass" type="text" spellcheck="false" maxlength="256"
+               value="correct-horse-battery-staple">
+        <div class="passnote" id="passnote"></div>
 
         <div class="row" style="margin-top:14px">
           <div>
@@ -197,6 +211,7 @@
           <div class="metric"><div class="n" id="chars">0</div><div class="k">CHARACTERS</div></div>
           <div class="metric"><div class="n blue" id="blocks">0</div><div class="k">BLOCKS (DATA+PARITY)</div></div>
           <div class="metric"><div class="n" id="bps">0</div><div class="k">BITS / SENTENCE</div></div>
+          <div class="metric"><div class="n" id="expand">–</div><div class="k">EXPANSION</div></div>
           <div class="metric"><div class="n" id="time">–</div><div class="k">JS8CALL AIRTIME*</div></div>
         </div>
       </div>
@@ -208,6 +223,8 @@
         <button class="btn" id="copyBtn">Copy all</button>
       </div>
       <pre class="cover" id="cover"><span class="empty">Type a message …</span></pre>
+
+      <div class="budget" id="budget"></div>
 
       <div class="note">
         * rough estimate for JS8Call normal mode (~0.9 characters/s). Over Plain/WhatsApp
@@ -385,63 +402,92 @@ const SLOT_POOL = {n1:"N1", b1:"N1", n2:"N2", b2:"N2",
 /* {slot:count} — count is the prefix length used and must be a power of two.
    Templates contain NO punctuation at all: every character has to survive the
    transport untouched, and a comma is exactly the kind of thing a radio or chat
-   path quietly drops or substitutes. Letters and single spaces only. */
+   path quietly drops or substitutes. Letters and single spaces only.
+
+   Each level offers SEVERAL sentence shapes of identical word count and
+   identical bit width. Which one is used is itself part of the payload, so the
+   variety is free — it adds log2(count) bits per sentence rather than costing
+   anything. Without this every line of a long cover had the same shape, which
+   is what gives a text cover away to a human reader faster than anything else.
+   Shapes at one level must be mutually exclusive; the selftest checks that. */
 const TEMPLATES = {
   de:[
-    "{n1:16} ist {a1:8} {end:8}",                              // 10 bits
-    "{n1:32} ist {a1:16} {end:16}",                            // 13 bits
-    "{n1:32} ist {a1:32} und {n2:32} {a3:32}",                 // 20 bits
-    "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",       // 28 bits
+    ["{n1:16} ist {a1:8} {end:8}",                                 // 10+1 bits
+     "{end:8} ist {n1:16} {a1:8}"],
+    ["{n1:32} ist {a1:16} {end:16}",                               // 13+1 bits
+     "{end:16} ist {n1:32} {a1:16}"],
+    ["{n1:32} ist {a1:32} und {n2:32} {a3:32}",                    // 20+1 bits
+     "{n2:32} ist {a3:32} und {n1:32} {a1:32}"],
+    ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",          // 28+1 bits
+     "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
   ],
   en:[
-    "{n1:16} is {a1:8} {end:8}",
-    "{n1:32} is {a1:16} {end:16}",
-    "{n1:32} is {a1:32} and {n2:32} {a3:32}",
-    "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
+    ["{n1:16} is {a1:8} {end:8}",
+     "{end:8} {n1:16} is {a1:8}"],
+    ["{n1:32} is {a1:16} {end:16}",
+     "{end:16} {n1:32} is {a1:16}"],
+    ["{n1:32} is {a1:32} and {n2:32} {a3:32}",
+     "{n2:32} is {a3:32} and {n1:32} {a1:32}"],
+    ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
+     "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
   ],
 };
 
 function escapeRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
-const GRAMMARS = {};
-(function initGrammars(){
-  for(const lang of ["de","en"]){
-    const pools=POOLS[lang];
-    GRAMMARS[lang]=TEMPLATES[lang].map(tpl=>{
-      const slots=[]; let bits=0, pat="", last=0;
-      const re=/\{(\w+):(\d+)\}/g; let m;
-      while((m=re.exec(tpl))){
-        const name=m[1], cnt=+m[2];
-        let opts=pools[SLOT_POOL[name]].slice(0,cnt);
-        if(opts.length!==cnt || (cnt & (cnt-1))) throw new Error(`word list ${name}:${cnt} (${lang}) unusable`);
-        if(name.startsWith("b")) opts=opts.map(w=>w.slice(w.indexOf(" ")+1));
-        if(new Set(opts).size!==cnt) throw new Error(`word list ${name}:${cnt} (${lang}) has duplicates`);
-        const width=Math.round(Math.log2(cnt));
-        slots.push({opts, width}); bits+=width;
-        pat+=escapeRe(tpl.slice(last,m.index));
-        // longest alternative first -> no premature partial match
-        const alts=opts.slice().sort((a,b)=>b.length-a.length);
-        pat+="("+alts.map(escapeRe).join("|")+")";
-        last=m.index+m[0].length;
-      }
-      pat+=escapeRe(tpl.slice(last));
-      const lv={tpl, slots, bits, _re:new RegExp("^"+pat+"$")};
-      /* Every template has a fixed word count (all nouns are article+noun or
-         bare, all other slots are single words). That is what lets the decoder
-         work on a stream of words instead of on lines. */
-      lv.tokens=renderSentence(lv, new Array(bits).fill(0)).split(" ").length;
-      return lv;
-    });
+function buildShape(lang, tpl){
+  const pools=POOLS[lang];
+  const slots=[]; let bits=0, pat="", last=0;
+  const re=/\{(\w+):(\d+)\}/g; let m;
+  while((m=re.exec(tpl))){
+    const name=m[1], cnt=+m[2];
+    let opts=pools[SLOT_POOL[name]].slice(0,cnt);
+    if(opts.length!==cnt || (cnt & (cnt-1))) throw new Error(`word list ${name}:${cnt} (${lang}) unusable`);
+    if(name.startsWith("b")) opts=opts.map(w=>w.slice(w.indexOf(" ")+1));
+    if(new Set(opts).size!==cnt) throw new Error(`word list ${name}:${cnt} (${lang}) has duplicates`);
+    const width=Math.round(Math.log2(cnt));
+    slots.push({opts, width}); bits+=width;
+    pat+=escapeRe(tpl.slice(last,m.index));
+    // longest alternative first -> no premature partial match
+    const alts=opts.slice().sort((a,b)=>b.length-a.length);
+    pat+="("+alts.map(escapeRe).join("|")+")";
+    last=m.index+m[0].length;
   }
-})();
-
-function renderSentence(lv, bits){
+  pat+=escapeRe(tpl.slice(last));
+  return {tpl, slots, bits, _re:new RegExp("^"+pat+"$")};
+}
+function renderShape(shape, bits){
   let idx=0; const words=[];
-  for(const s of lv.slots){
+  for(const s of shape.slots){
     let v=0; for(let b=0;b<s.width;b++) v=(v<<1)|bits[idx++];
     words.push(s.opts[v]);
   }
   let k=0;
-  return lv.tpl.replace(/\{(\w+):(\d+)\}/g, ()=>words[k++]);
+  return shape.tpl.replace(/\{(\w+):(\d+)\}/g, ()=>words[k++]);
+}
+const GRAMMARS = {};
+(function initGrammars(){
+  for(const lang of ["de","en"]){
+    GRAMMARS[lang]=TEMPLATES[lang].map(variants=>{
+      const n=variants.length;
+      if(n & (n-1)) throw new Error(`${lang}: sentence shapes per level must be a power of two`);
+      const sel=Math.round(Math.log2(n));
+      const shapes=variants.map(v=>buildShape(lang,v));
+      const base=new Set(shapes.map(s=>s.bits));
+      if(base.size!==1) throw new Error(`${lang}: sentence shapes of one level must carry the same number of bits`);
+      /* Every shape has a fixed word count, and all shapes of a level must
+         agree on it — that is what lets the decoder work on a stream of words
+         instead of on lines. */
+      const toks=new Set(shapes.map(s=>renderShape(s,new Array(s.bits).fill(0)).split(" ").length));
+      if(toks.size!==1) throw new Error(`${lang}: sentence shapes of one level must have the same word count`);
+      return {shapes, sel, bits:sel+[...base][0], tokens:[...toks][0]};
+    });
+  }
+})();
+
+/* The leading bits pick the sentence shape, the rest fill its slots. */
+function renderSentence(lv, bits){
+  let sel=0; for(let i=0;i<lv.sel;i++) sel=(sel<<1)|bits[i];
+  return renderShape(lv.shapes[sel], bits.slice(lv.sel));
 }
 /* A client may prefix a line with a callsign ("KN4CRD: ") or a quote marker
    ("> "). Cover sentences never contain ":" or ">", so stripping such a prefix
@@ -455,22 +501,25 @@ function cleanLine(line){
   return line.trim().toLowerCase().replace(PREFIX_RE,"")
              .replace(PUNCT_RE," ").replace(/\s+/g," ").trim();
 }
-function bitsFrom(lv, m){
-  const bits=[];
-  lv.slots.forEach((s,i)=>{ const v=s.opts.indexOf(m[i+1]);
-    for(let b=s.width-1;b>=0;b--) bits.push((v>>b)&1); });
-  return bits;
+/* Which shape does this sentence have, and what bits does it carry? */
+function matchSentence(lv, s){
+  for(let k=0;k<lv.shapes.length;k++){
+    const shape=lv.shapes[k], m=shape._re.exec(s);
+    if(!m) continue;
+    const bits=[];
+    for(let b=lv.sel-1;b>=0;b--) bits.push((k>>b)&1);
+    shape.slots.forEach((sl,i)=>{ const v=sl.opts.indexOf(m[i+1]);
+      for(let b=sl.width-1;b>=0;b--) bits.push((v>>b)&1); });
+    return bits;
+  }
+  return null;
 }
-function parseSentence(lv, line){
-  const m=lv._re.exec(cleanLine(line));
-  return m ? bitsFrom(lv,m) : null;
-}
+function parseSentence(lv, line){ return matchSentence(lv, cleanLine(line)); }
 /* Try to read one sentence out of the word stream starting at pos. */
 function parseAt(lv, toks, pos){
   const n=lv.tokens;
   if(pos+n>toks.length) return null;
-  const m=lv._re.exec(toks.slice(pos,pos+n).join(" "));
-  return m ? bitsFrom(lv,m) : null;
+  return matchSentence(lv, toks.slice(pos,pos+n).join(" "));
 }
 /* Read nSent consecutive sentences from the word stream at pos. */
 function readRun(lv, toks, pos, nSent){
@@ -496,24 +545,29 @@ async function deriveKey(pass){
   if(_keyCache.pass===pass && _keyCache.obj) return _keyCache.obj;
   const enc=new TextEncoder();
   const base=await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits","deriveKey"]);
-  const salt=enc.encode("stegocomm/v4/pbkdf2");
+  const salt=enc.encode("stegocomm/v5/pbkdf2");
   const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"}, base, 256);
   const raw=new Uint8Array(bits);
   const akey=await crypto.subtle.importKey("raw", raw, {name:"AES-GCM"}, false, ["encrypt","decrypt"]);
   _keyCache.pass=pass; _keyCache.obj={akey, raw};
   return _keyCache.obj;
 }
+/* deflate costs 6 bytes of framing, which a short message never earns back —
+   so take whichever is smaller and record which in the manifest. */
 async function encryptMsg(secret, keyObj){
-  const comp=await deflate(new TextEncoder().encode(secret));
+  const plain=new TextEncoder().encode(secret);
+  const packed=await deflate(plain);
+  const comp=packed.length<plain.length;
   const iv=crypto.getRandomValues(new Uint8Array(12));
-  const body=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv}, keyObj.akey, comp));
+  const body=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv}, keyObj.akey,
+                                                        comp?packed:plain));
   const out=new Uint8Array(12+body.length); out.set(iv,0); out.set(body,12);
-  return out;
+  return {ct:out, comp};
 }
-async function decryptMsg(ct, keyObj){
+async function decryptMsg(ct, keyObj, comp){
   const iv=ct.slice(0,12), body=ct.slice(12);
-  const comp=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv}, keyObj.akey, body));
-  return new TextDecoder().decode(await inflate(comp));
+  const plain=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv}, keyObj.akey, body));
+  return new TextDecoder().decode(comp ? await inflate(plain) : plain);
 }
 /* SHA-256 keystream:  seed = raw || tag(2 bytes) || extra || counter */
 async function ksBytes(raw, tag, extra, nbytes){
@@ -557,9 +611,9 @@ function applyProfile(txt, profile){ return profile==="js8call" ? txt.toUpperCas
 function xorBytes(a,b){ const o=new Uint8Array(a.length);
   for(let i=0;i<a.length;i++) o[i]=a[i]^b[i]; return o; }
 
-async function buildManifest(raw, K, R, ctlen, bnonce, mnonce){
+async function buildManifest(raw, K, R, ctlen, bnonce, mnonce, comp){
   const plain=new Uint8Array(MANIFEST_PLAIN);
-  plain[0]=K; plain[1]=R; plain[2]=(K*CHUNK-ctlen)&7; plain.set(bnonce,3);
+  plain[0]=K; plain[1]=R; plain[2]=((K*CHUNK-ctlen)&7)|(comp?8:0); plain.set(bnonce,3);
   const c=crc16(plain.subarray(0,MANIFEST_PLAIN-2));
   plain[MANIFEST_PLAIN-2]=(c>>8)&0xff; plain[MANIFEST_PLAIN-1]=c&0xff;
   const out=new Uint8Array(MANIFEST_LEN);
@@ -574,11 +628,12 @@ async function parseManifest(raw, buf){
                        await ksManifest(raw,mnonce,MANIFEST_PLAIN));
   const c=(plain[MANIFEST_PLAIN-2]<<8)|plain[MANIFEST_PLAIN-1];
   if(crc16(plain.subarray(0,MANIFEST_PLAIN-2))!==c) return null;
-  const K=plain[0], R=plain[1], pad=plain[2];
+  const K=plain[0], R=plain[1], flags=plain[2];
+  const pad=flags&7, comp=!!(flags&8);
   const bnonce=plain.subarray(3,3+BNONCE_LEN);
   const ctlen=K*CHUNK-pad;
-  if(K===0 || K+R>MAX_BLOCKS || pad>7 || ctlen<=0) return null;
-  return {K,R,ctlen,bnonce};
+  if(K===0 || K+R>MAX_BLOCKS || (flags&0xf0) || ctlen<=0) return null;
+  return {K,R,ctlen,bnonce,comp};
 }
 
 async function buildFrame(raw, idx, payload, bnonce){
@@ -606,7 +661,7 @@ function renderRun(lv, frame, nbits, pad){
 
 async function encode(secret, keyObj, lang, profile, level, parity){
   const raw=keyObj.raw, lv=GRAMMARS[lang][level];
-  const ct=await encryptMsg(secret, keyObj);
+  const {ct, comp}=await encryptMsg(secret, keyObj);
   const ctlen=ct.length;
   const K=Math.ceil(ctlen/CHUNK);
   if(K>MAX_BLOCKS) throw new Error(`Message too long — ${K} data blocks, the limit is ${MAX_BLOCKS}.`);
@@ -624,7 +679,7 @@ async function encode(secret, keyObj, lang, profile, level, parity){
   const padBytes=Math.ceil(lv.bits/8)+1;
   const manifestSection=async()=>{
     const mnonce=crypto.getRandomValues(new Uint8Array(MNONCE_LEN));
-    const buf=await buildManifest(raw,K,R,ctlen,bnonce,mnonce);
+    const buf=await buildManifest(raw,K,R,ctlen,bnonce,mnonce,comp);
     const pad=await ksPad(raw,bnonce,0xff,padBytes);
     return {lines:renderRun(lv,buf,MANIFEST_BITS,pad)};
   };
@@ -635,7 +690,7 @@ async function encode(secret, keyObj, lang, profile, level, parity){
     sections.push({lines:renderRun(lv,buf,FRAME_BITS,pad), block:i});
   }
   sections.push(await manifestSection());
-  return {sections, K, R, tot, ctlen, level, lang, profile};
+  return {sections, K, R, tot, ctlen, level, lang, profile, comp};
 }
 
 /* Cover as text — nothing but carrier sentences, no framing lines of any kind.
@@ -716,7 +771,7 @@ async function decode(coverText, keyObj){
       +foreign.join(" ")+"), so the transport path most likely altered it — the passphrase may well be fine."
     : "No valid manifest found — wrong passphrase, or this is not cover text."};
   const {man, lang, level, spans}=f;
-  const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, tot=K+R;
+  const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, comp=man.comp, tot=K+R;
   const lv=GRAMMARS[lang][level];
   const nSent=sentencesFor(lv, FRAME_BITS), span=nSent*lv.tokens;
 
@@ -761,7 +816,7 @@ async function decode(coverText, keyObj){
 
   const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
   const ct=padded.slice(0,ctlen);
-  try{ const msg=await decryptMsg(ct, keyObj);
+  try{ const msg=await decryptMsg(ct, keyObj, comp);
     return {ok:true, message:msg, tot, K, recovered, R, lang, level, warning}; }
   catch(e){ return {ok:false, tot, K, warning,
     error:"Decryption failed — wrong passphrase, or too many damaged blocks."}; }
@@ -779,6 +834,27 @@ const LEVEL_DESC=[
   "Wide word lists and clipped verbless clauses — audibly stilted, much shorter.",
   "Telegraphic, no articles or verbs: shortest cover, but clearly artificial."
 ];
+/* A deliberately conservative judgement, mirroring rate_passphrase() in
+   stegocomms.py. No meter can tell whether YOU chose a passphrase at random, so
+   this only reports what is checkable: length, variety, and whether it looks
+   like a single word. */
+const MIN_PASS_LEN=12, GOOD_PASS_LEN=20;
+function ratePassphrase(p){
+  const n=p.length;
+  if(n===0) return ["reject","Enter a passphrase — both sides must use the same one."];
+  if(n<MIN_PASS_LEN) return ["reject",
+    `Too short: ${n} of at least ${MIN_PASS_LEN} characters. Everything this tool protects rests on this one string.`];
+  const words=p.split(/[^0-9A-Za-z\u00c0-\u024f]+/).filter(Boolean);
+  const uniq=new Set(p.toLowerCase()).size;
+  if(words.length<=1 && n<GOOD_PASS_LEN) return ["weak",
+    "Looks like a single word. Four or five unrelated words are far harder to guess than one long one."];
+  if(uniq<6) return ["weak",
+    `Only ${uniq} different characters — repetition adds length but almost no guesswork.`];
+  if(n<GOOD_PASS_LEN && words.length<4) return ["ok",
+    `Usable, but ${GOOD_PASS_LEN}+ characters or four or more unrelated words would be markedly better.`];
+  return ["good","Good length and variety. Only you can know whether it is actually unpredictable."];
+}
+
 const $=id=>document.getElementById(id);
 
 let recomputeToken=0;
@@ -792,12 +868,18 @@ async function recompute(){
   $("bps").textContent=lv.bits;
   drawTrace(lv.bits);
 
+  const [verdict, note]=ratePassphrase(pass);
+  const pn=$("passnote");
+  pn.className="passnote "+verdict;
+  pn.textContent=pass ? note : "";
+
   const cover=$("cover");
-  if(!secret.trim() || !pass){
-    cover.innerHTML='<span class="empty">'+(!pass?"Enter a passphrase …":"Type a message …")+'</span>';
+  const blank=(msg)=>{ cover.innerHTML='<span class="empty">'+msg+'</span>';
     for(const id of ["sentCount","chars"]) $(id).textContent="0";
-    $("blocks").textContent="0"; $("time").textContent="–"; lastCover=""; return;
-  }
+    $("blocks").textContent="0"; $("time").textContent="–"; $("expand").textContent="–";
+    $("budget").innerHTML=""; lastCover=""; };
+  if(!secret.trim()){ blank("Type a message …"); return; }
+  if(verdict==="reject"){ blank(pass ? "Passphrase too weak — "+note : "Enter a passphrase …"); return; }
 
   let keyObj; try{ keyObj=await deriveKey(pass); }catch(e){ return; }
   if(my!==recomputeToken) return;
@@ -829,6 +911,52 @@ async function recompute(){
   if(profile==="js8call"){ const secs=Math.round(totalChars/0.9);
     const m=Math.floor(secs/60), s=secs%60; $("time").textContent=m>0?`${m}m ${s}s`:`${s}s`; }
   else $("time").textContent="instant";
+
+  showBudget(enc, lv, secret, totalSent, totalChars);
+}
+
+/* How much do we inflate the message, and where does it all go?  Every figure
+   here is exact rather than estimated — the encoder knows each field's size. */
+function showBudget(enc, lv, secret, totalSent, totalChars){
+  const plainBytes=new TextEncoder().encode(secret).length;
+  const plainChars=[...secret].length;
+  const payloadBytes=enc.ctlen-28;                 // minus 12-byte iv and 16-byte tag
+  const blockPad=enc.K*CHUNK-enc.ctlen;
+  const totalBits=totalSent*lv.bits;
+  // What actually travels is the compressed payload, so that is the row that
+  // gets the share -- otherwise a well-compressing message reads as >100%.
+  const rows=[
+    [enc.comp ? `your message (deflated from ${plainBytes} bytes)` : "your message",
+                            payloadBytes*8,                  true],
+    ["encryption (iv+tag)", 28*8,                            false],
+    ["block padding",       blockPad*8,                      false],
+    ["parity blocks",       enc.R*CHUNK*8,                   false],
+    ["block framing",       enc.tot*16,                      false],
+    ["manifest (sent 2x)",  2*MANIFEST_BITS,                 false],
+    ["sentence padding",    totalBits-(enc.tot*FRAME_BITS+2*MANIFEST_BITS), false],
+  ].filter(r=>r[1]!==0);
+
+  const ratio=plainChars ? totalChars/plainChars : 0;
+  $("expand").textContent=ratio>=10 ? Math.round(ratio)+"×" : ratio.toFixed(1)+"×";
+
+  const widest=Math.max(...rows.map(r=>Math.abs(r[1])));
+  const pct=v=>(100*v/totalBits);
+  $("budget").innerHTML=
+    `<b>${plainChars} characters</b> (${plainBytes} bytes`
+    +`${enc.comp?`, deflated to ${payloadBytes}`:""}) become `
+    +`<b>${totalChars.toLocaleString("en")} characters</b> in `
+    +`${totalSent.toLocaleString("en")} sentences — that is <b>${ratio.toFixed(1)}×</b> `
+    +`as much text, at ${(totalChars/totalSent).toFixed(0)} characters per sentence `
+    +`carrying ${lv.bits} bits.<br>`
+    +`Of the <b>${totalBits.toLocaleString("en")} bits</b> actually sent, `
+    +`<b>${(payloadBytes*8).toLocaleString("en")}</b> are your message `
+    +`(${pct(payloadBytes*8).toFixed(0)}%). The rest buys secrecy, error recovery and framing:`
+    +"<table>"+rows.map(([name,bits,hi])=>
+        `<tr class="${hi?"hi":""}"><td>${name}</td>`
+        +`<td class="num">${bits>0?"":"−"}${Math.abs(bits).toLocaleString("en")} bit</td>`
+        +`<td class="num">${bits>0?pct(bits).toFixed(0)+"%":""}</td>`
+        +`<td class="bar"><i style="width:${Math.max(1,100*Math.abs(bits)/widest)}%"></i></td></tr>`
+      ).join("")+"</table>";
 }
 
 function drawTrace(bits){

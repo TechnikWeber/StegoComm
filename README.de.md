@@ -2,6 +2,8 @@
 
 # StegoComm
 
+[![tests](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml/badge.svg)](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml)
+
 **Ein Proof of Concept für einen verdeckten, verschlüsselten Nachrichtenkanal, der Chiffretext in unauffälligem Geplauder versteckt.**
 
 Zwei zusammenspielende Implementierungen mit exakt demselben Wire-Format:
@@ -27,7 +29,7 @@ ersten vier sind gewöhnliche, gut verstandene Kryptographie.
         "Treffen Sonntag 18 Uhr am alten Hafen"
                      │
                      │   1.  KLEINER MACHEN
-                     │       deflate — weniger Bytes zu verstecken
+                     │       deflate, aber nur wenn es wirklich kleiner wird
                      ▼
         ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                      │
@@ -72,7 +74,7 @@ in denselben Listen nach und hat die Bits zurück.
 
 | Schicht | Löst |
 |---|---|
-| deflate | weniger Bytes zu verstecken |
+| deflate (wenn es hilft) | weniger Bytes zu verstecken |
 | AES-256-GCM | niemand kann es lesen, Manipulation fällt auf |
 | Reed-Solomon | verlorene Blöcke ohne Nachforderung rekonstruiert |
 | die Grammatik | es sieht nicht nach Nachricht aus |
@@ -89,7 +91,7 @@ dort Schluss. Die Tarnung sorgt dafür, dass überhaupt niemand hinsieht.
 
 Du hast eine geheime Nachricht. StegoComm:
 
-1. **komprimiert** sie (deflate),
+1. **komprimiert** sie (deflate) — aber nur, wenn sie dadurch wirklich kleiner wird; deflate kostet sechs Byte Rahmen, die eine kurze Nachricht nie wieder einspielt,
 2. **verschlüsselt** sie mit AES-256-GCM (Schlüssel aus einer gemeinsamen Passphrase via PBKDF2-HMAC-SHA256, 200 000 Iterationen),
 3. zerlegt den Chiffretext in 8-Byte-**Blöcke** und ergänzt **Reed-Solomon-Parity-Blöcke** (GF(256), Cauchy-Matrix), damit verlorene oder beschädigte Blöcke ohne Nachforderung rekonstruiert werden,
 4. **kodiert jeden Block als unauffällige Sätze** — Wetter und Smalltalk auf Deutsch oder Englisch — wobei die *Wortwahl* die Bits trägt,
@@ -157,12 +159,12 @@ Der Empfänger muss nicht wissen, welche Stufe du benutzt hast.
 
 Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 
-| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Beispielsatz |
+| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Beispielsätze |
 |---|---|---|---|---|---|
-| 0 | sehr glaubhaft | 10 | 104 | 2657 | `das band ist stetig hier` |
-| 1 | glaubhaft (Standard) | 13 | 89 | 2267 | `die antenne ist mild vorn` |
-| 2 | knapp | 20 | 52 | 2104 | `das radio ist stetig und der zaun fertig` |
-| 3 | sehr knapp | 28 | 39 | 1439 | `kaffee hart turm langsam gleich warm` |
+| 0 | sehr glaubhaft | 11 | 102 | 2628 | `das radio ist fein heute` · `heute ist die antenne mau` |
+| 1 | glaubhaft (Standard) | 14 | 78 | 1964 | `das tal ist zaeh jetzt` · `nachts ist der frost klar` |
+| 2 | knapp | 21 | 52 | 2087 | `die leitung ist krumm und das netz frisch` |
+| 3 | sehr knapp | 29 | 39 | 1469 | `kueche spitz stecker langsam frueh trueb` |
 
 Höhere Stufen hängen **keine** Nebensätze mehr an — das war der v3-Entwurf, und
 er ging nach hinten los: ein angehängter Nebensatz brachte ~5 Bit, kostete aber
@@ -176,6 +178,12 @@ Die Glaubhaftigkeit sinkt jetzt durch ungewöhnliche Wortwahl, nicht durch Läng
 Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stufe
 halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
 Nachrichten zum Einfügen.
+
+Jede Stufe bietet **mehrere Satzformen** mit identischer Wortzahl und Bitbreite,
+und welche benutzt wird, ist selbst Teil der Nutzlast — die Vielfalt ist also
+gratis: sie bringt ein Bit pro Satz zusätzlich, statt etwas zu kosten. Ohne sie
+hatte jede Zeile eines langen Covers dieselbe Form, und genau das verrät einen
+Text-Cover schneller an einen menschlichen Leser als alles andere.
 
 Weder Sprache noch Stufe stehen irgendwo im Cover — der Decoder probiert schlicht
 alle 8 Kombinationen durch, die CRC16 des Manifests entscheidet.
@@ -236,17 +244,27 @@ unabhängigen Implementierungen überein.
 
 ### Zur Passphrase
 
-Alles ist erlaubt: ein Zeichen oder fünfhundert, Umlaute, Emoji,
-Anführungszeichen, Backslashes, Tabs. PBKDF2 macht aus beliebigem UTF-8-Text
-einen 32-Byte-Schlüssel. Drei Dinge solltest du wissen:
+Jeder UTF-8-Text funktioniert — Umlaute, Emoji, Anführungszeichen, Backslashes,
+Tabs — denn PBKDF2 macht aus allem einen 32-Byte-Schlüssel. Weil aber die gesamte
+Sicherheit an dieser einen Zeichenkette hängt, **verweigern CLI und Browser-Tool
+das Kodieren unter 12 Zeichen** und sagen dir, wenn das Eingegebene schwächer ist
+als es aussieht. (`--allow-weak-pass` hebelt die CLI-Prüfung aus; Dekodieren ist
+nie eingeschränkt, sonst kämst du an deine alten Nachrichten nicht mehr heran.)
+
+**Wie eine gute Passphrase aussieht:** vier oder fünf zusammenhanglose Wörter,
+z. B. `hafen-laterne-still-sieben`. Länge darüber hinaus zählt weniger als
+Unvorhersagbarkeit — `aaaaaaaaaaaaaaaaaaaa` hat zwanzig Zeichen und ist wertlos.
+Die Prüfung meldet nur, was tatsächlich prüfbar ist (Länge, Vielfalt, ob es ein
+einzelnes Wort ist); kein Messwerkzeug kann wissen, ob *du* zufällig gewählt
+hast, und sie sagt das auch.
+
+Zwei weitere Dinge:
 
 - **Nichts wird getrimmt.** `"geheim"` und `"geheim "` sind verschiedene
   Schlüssel. Ein beim Kopieren aufgeschnapptes Leerzeichen bricht die
   Entschlüsselung.
 - **Das Feld ist nicht maskiert** (`type="text"`), die Passphrase steht sichtbar
   auf dem Schirm.
-- **Länge ist egal, Ratbarkeit nicht.** `"hund"` funktioniert technisch
-  einwandfrei und ist trotzdem wertlos — daran hängt die gesamte Sicherheit.
 
 ---
 
@@ -271,18 +289,19 @@ dekodieren — der Decoder überspringt, was er nicht parsen kann.
 
 ---
 
-## Wire-Format v4
+## Wire-Format v5
 
-Das aktuelle Wire-Format ist **v4**. Seine Grammatik enthält überhaupt keine
+Das aktuelle Wire-Format ist **v5**. Seine Grammatik enthält überhaupt keine
 Satzzeichen, und der Decoder liest einen Wortstrom statt Zeilen und normalisiert
 vor dem Parsen Groß-/Kleinschreibung, Rufzeichen-/Zitat-Präfixe, Satzzeichen und
-Leerraum weg. Unterschiede zu v3: der Klartext-Header pro Block ist weg (die
-Rahmung steckt jetzt im verdeckten Kanal plus einem verschleierten Manifest), die
-Glaubhaftigkeitsstufen erkaufen Dichte über die *Wortwahl* statt über die
-Satzlänge, und deutsche Nomen tragen ihren richtigen Artikel (`der Kaffee` statt
-des pauschalen `das kaffee` aus v3). Das PBKDF2-Salt heißt jetzt
-`stegocomm/v4/pbkdf2`, **v3-Cover lassen sich mit v4 also nicht entschlüsseln** —
-das Format ist ohnehin inkompatibel.
+Leerraum weg. Jede Stufe hat mehrere Satzformen, und deflate wird nur angewandt,
+wenn es die Nachricht tatsächlich verkleinert — es kostet sechs Byte Rahmen, die
+eine kurze Nachricht nie wieder einspielt, also hält das Manifest fest, was
+benutzt wurde. Das Salt heißt `stegocomm/v5/pbkdf2`; **Cover früherer Versionen
+lassen sich nicht mehr entschlüsseln**, das Format ist ohnehin inkompatibel.
+
+Beide Implementierungen werden im Gleichschritt geändert und bei jedem Push in
+beide Richtungen gegeneinander geprüft — siehe `tests/`.
 
 ### Schichtenaufbau
 
@@ -302,12 +321,44 @@ oder verstümmelter Satz kostet damit einen Block, nicht den Rest der Nachricht.
 ### Bekannte Grenzen
 
 - Nachrichten sind auf 254 Blöcke begrenzt, also rund 2 kB Chiffretext.
-- Alle Sätze einer Stufe folgen einer Schablone, ein langer Cover wirkt daher
-  strukturell repetitiv — das galt für v3 genauso und ist eine Grenze der
-  Glaubhaftigkeit, kein Fehler.
+- Ein Cover ist 40- bis 70-mal so lang wie die Nachricht. Das meiste davon ist
+  systembedingt — die Grammatik trägt 0,4 bis 0,8 Bit pro Zeichen — und das
+  Browser-Tool schlüsselt den Rest jetzt Posten für Posten auf. Größere Blöcke
+  würden den Rahmen pro Block drücken, wurden aber gemessen und verworfen: die
+  Parity-Blöcke wachsen mit der Blockgröße mit, 8 Byte ergaben bei jeder
+  getesteten Nachrichtenlänge den kürzesten Cover.
+- Jede Stufe hat nur eine Handvoll Satzformen und ein Vokabular, ein langer Cover
+  wirkt daher weiterhin strukturell repetitiv. Das ist die wesentliche Grenze der
+  Glaubhaftigkeit, die bleibt.
 - Die Blockerkennung hängt an einer 8-Bit-CRC; eine zufällige Satzfolge wird mit
   ~1/256 fälschlich als Block gelesen. Ein Fehltreffer verdirbt die Nutzlast, das
   GCM-Tag weist die Nachricht dann ab statt falschen Klartext zu liefern.
+
+---
+
+## Tests laufen lassen
+
+Die beiden Implementierungen müssen byteweise übereinstimmen, deshalb ist die
+Gegenprobe der entscheidende Teil — wer nur eine von beiden ändert, fällt hier
+durch. Das läuft bei jedem Push über GitHub Actions, lokal mit:
+
+```bash
+./tests/run_all.sh
+```
+
+Geprüft werden der Selbsttest jeder Engine (Round-Trip, Parity-Rekonstruktion,
+NACK, Manifest-Redundanz, Resynchronisation, Transportschäden,
+Grammatik-Konsistenz), danach kodiert jede Implementierung und die andere
+dekodiert — über alle Stufen, Sprachen und Profile — und zuletzt, dass die
+Passphrasen-Regel auf beiden Seiten identisch urteilt. `tests/engine.mjs` lädt
+die Browser-Engine direkt aus `cover_studio.html`, getestet wird also der
+ausgelieferte Code.
+
+---
+
+## Lizenz
+
+MIT — siehe [LICENSE](LICENSE).
 
 ---
 

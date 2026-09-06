@@ -60,7 +60,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CHUNK = 8            # bytes per block
 BLOCK_BITS = CHUNK * 8   # 64
-PBKDF2_SALT = b"stegocomm/v4/pbkdf2"
+PBKDF2_SALT = b"stegocomm/v5/pbkdf2"
 PBKDF2_ITERS = 200_000
 
 # Field sizes (bytes) of the two frame types
@@ -244,67 +244,103 @@ SLOT_POOL = {"n1": "N1", "b1": "N1", "n2": "N2", "b2": "N2",
 # Templates contain NO punctuation at all: every character has to survive the
 # transport untouched, and a comma is exactly the kind of thing a radio or chat
 # path quietly drops or substitutes.  Letters and single spaces only.
+# Each level offers SEVERAL sentence shapes of identical word count and
+# identical bit width.  Which one is used is itself part of the payload, so the
+# variety is free -- it adds log2(count) bits per sentence rather than costing
+# anything.  Without this every line of a long cover had the same shape, which
+# is what gives a text cover away to a human reader faster than anything else.
+# Shapes at one level must be mutually exclusive; the selftest checks that.
 TEMPLATES = {
     "de": [
-        "{n1:16} ist {a1:8} {end:8}",                                   # 10 bits
-        "{n1:32} ist {a1:16} {end:16}",                                 # 13 bits
-        "{n1:32} ist {a1:32} und {n2:32} {a3:32}",                      # 20 bits
-        "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",            # 28 bits
+        ["{n1:16} ist {a1:8} {end:8}",                                   # 10+1 bits
+         "{end:8} ist {n1:16} {a1:8}"],
+        ["{n1:32} ist {a1:16} {end:16}",                                 # 13+1 bits
+         "{end:16} ist {n1:32} {a1:16}"],
+        ["{n1:32} ist {a1:32} und {n2:32} {a3:32}",                      # 20+1 bits
+         "{n2:32} ist {a3:32} und {n1:32} {a1:32}"],
+        ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",            # 28+1 bits
+         "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
     ],
     "en": [
-        "{n1:16} is {a1:8} {end:8}",
-        "{n1:32} is {a1:16} {end:16}",
-        "{n1:32} is {a1:32} and {n2:32} {a3:32}",
-        "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
+        ["{n1:16} is {a1:8} {end:8}",
+         "{end:8} {n1:16} is {a1:8}"],
+        ["{n1:32} is {a1:16} {end:16}",
+         "{end:16} {n1:32} is {a1:16}"],
+        ["{n1:32} is {a1:32} and {n2:32} {a3:32}",
+         "{n2:32} is {a3:32} and {n1:32} {a1:32}"],
+        ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
+         "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
     ],
 }
 
 _SLOT_RE = re.compile(r"\{(\w+):(\d+)\}")
 
-def _build(lang):
+def _build_shape(lang, tpl):
     pools = POOLS[lang]
+    slots, bits = [], 0
+    pat, last = "", 0
+    for m in _SLOT_RE.finditer(tpl):
+        name, cnt = m.group(1), int(m.group(2))
+        opts = list(pools[SLOT_POOL[name]][:cnt])
+        if len(opts) != cnt or cnt & (cnt - 1):
+            raise ValueError(f"word list {name}:{cnt} ({lang}) unusable")
+        if name.startswith("b"):
+            opts = [w.split(" ", 1)[1] for w in opts]
+        if len(set(opts)) != cnt:
+            raise ValueError(f"word list {name}:{cnt} ({lang}) has duplicates")
+        width = cnt.bit_length() - 1
+        slots.append({"opts": opts, "width": width})
+        bits += width
+        pat += re.escape(tpl[last:m.start()])
+        # longest alternative first -> no premature partial match
+        alts = sorted(opts, key=len, reverse=True)
+        pat += "(" + "|".join(re.escape(w) for w in alts) + ")"
+        last = m.end()
+    pat += re.escape(tpl[last:])
+    return {"tpl": tpl, "slots": slots, "bits": bits,
+            "re": re.compile("^" + pat + "$")}
+
+def _build(lang):
     out = []
-    for tpl in TEMPLATES[lang]:
-        slots, bits = [], 0
-        pat, last = "", 0
-        for m in _SLOT_RE.finditer(tpl):
-            name, cnt = m.group(1), int(m.group(2))
-            opts = list(pools[SLOT_POOL[name]][:cnt])
-            if len(opts) != cnt or cnt & (cnt - 1):
-                raise ValueError(f"word list {name}:{cnt} ({lang}) unusable")
-            if name.startswith("b"):
-                opts = [w.split(" ", 1)[1] for w in opts]
-            if len(set(opts)) != cnt:
-                raise ValueError(f"word list {name}:{cnt} ({lang}) has duplicates")
-            width = cnt.bit_length() - 1
-            slots.append({"opts": opts, "width": width})
-            bits += width
-            pat += re.escape(tpl[last:m.start()])
-            # longest alternative first -> no premature partial match
-            alts = sorted(opts, key=len, reverse=True)
-            pat += "(" + "|".join(re.escape(w) for w in alts) + ")"
-            last = m.end()
-        pat += re.escape(tpl[last:])
-        lv = {"tpl": tpl, "slots": slots, "bits": bits,
-              "re": re.compile("^" + pat + "$")}
-        # Every template has a fixed word count (all nouns are article+noun or
-        # bare, all other slots are single words).  That is what lets the
-        # decoder work on a stream of words instead of on lines.
-        lv["tokens"] = len(render_sentence(lv, [0] * bits).split())
-        out.append(lv)
+    for variants in TEMPLATES[lang]:
+        n = len(variants)
+        if n & (n - 1):
+            raise ValueError(f"{lang}: sentence shapes per level must be a power of two")
+        sel = n.bit_length() - 1
+        shapes = [_build_shape(lang, v) for v in variants]
+        base = {s["bits"] for s in shapes}
+        if len(base) != 1:
+            raise ValueError(f"{lang}: sentence shapes of one level must carry "
+                             f"the same number of bits, got {sorted(base)}")
+        # Every shape has a fixed word count, and all shapes of a level must
+        # agree on it -- that is what lets the decoder work on a stream of words
+        # instead of on lines.
+        toks = {len(_render_shape(s, [0] * s["bits"]).split()) for s in shapes}
+        if len(toks) != 1:
+            raise ValueError(f"{lang}: sentence shapes of one level must have "
+                             f"the same word count, got {sorted(toks)}")
+        out.append({"shapes": shapes, "sel": sel, "bits": sel + base.pop(),
+                    "tokens": toks.pop()})
     return out
 
-def render_sentence(lv, bits):
+def _render_shape(shape, bits):
     idx = 0
     words = []
-    for s in lv["slots"]:
+    for s in shape["slots"]:
         v = 0
         for _ in range(s["width"]):
             v = (v << 1) | bits[idx]
             idx += 1
         words.append(s["opts"][v])
     it = iter(words)
-    return _SLOT_RE.sub(lambda m: next(it), lv["tpl"])
+    return _SLOT_RE.sub(lambda m: next(it), shape["tpl"])
+
+def render_sentence(lv, bits):
+    """The leading bits pick the sentence shape, the rest fill its slots."""
+    sel = 0
+    for i in range(lv["sel"]):
+        sel = (sel << 1) | bits[i]
+    return _render_shape(lv["shapes"][sel], bits[lv["sel"]:])
 
 # A client may prefix a line with a callsign ("KN4CRD: ") or a quote marker
 # ("> ").  Cover sentences never contain ":" or ">", so stripping such a prefix
@@ -319,25 +355,29 @@ def clean_line(line):
     s = _PREFIX_RE.sub("", line.strip().lower())
     return re.sub(r"\s+", " ", _PUNCT_RE.sub(" ", s)).strip()
 
-def _bits_from(lv, m):
-    bits = []
-    for i, sl in enumerate(lv["slots"]):
-        v = sl["opts"].index(m.group(i + 1))
-        for b in range(sl["width"] - 1, -1, -1):
-            bits.append((v >> b) & 1)
-    return bits
+def _match(lv, s):
+    """Which shape does this sentence have, and what bits does it carry?"""
+    for k, shape in enumerate(lv["shapes"]):
+        m = shape["re"].match(s)
+        if not m:
+            continue
+        bits = [(k >> b) & 1 for b in range(lv["sel"] - 1, -1, -1)]
+        for i, sl in enumerate(shape["slots"]):
+            v = sl["opts"].index(m.group(i + 1))
+            for b in range(sl["width"] - 1, -1, -1):
+                bits.append((v >> b) & 1)
+        return bits
+    return None
 
 def parse_sentence(lv, line):
-    m = lv["re"].match(clean_line(line))
-    return _bits_from(lv, m) if m else None
+    return _match(lv, clean_line(line))
 
 def parse_at(lv, toks, pos):
     """Try to read one sentence out of the word stream starting at pos."""
     n = lv["tokens"]
     if pos + n > len(toks):
         return None
-    m = lv["re"].match(" ".join(toks[pos:pos + n]))
-    return _bits_from(lv, m) if m else None
+    return _match(lv, " ".join(toks[pos:pos + n]))
 
 # _build needs render_sentence to measure each template's word count, so the
 # grammars are built here rather than next to _build.
@@ -345,21 +385,50 @@ GRAMMARS = {"de": _build("de"), "en": _build("en")}
 LEVELS = range(len(TEMPLATES["de"]))
 
 # --------------------------------------------------------- crypto
+MIN_PASS_LEN = 12          # refused outright below this
+GOOD_PASS_LEN = 20         # what we actually recommend
+
+def rate_passphrase(p):
+    """A deliberately conservative judgement.  No meter can tell whether YOU
+    chose a passphrase at random, so this only reports what is checkable:
+    length, variety, and whether it looks like a single word.  Returns
+    (verdict, note) with verdict in "reject" / "weak" / "ok" / "good"."""
+    n = len(p)
+    if n < MIN_PASS_LEN:
+        return ("reject", f"Too short: {n} of at least {MIN_PASS_LEN} characters. "
+                          f"Everything this tool protects rests on this one string.")
+    words = [w for w in re.split(r"[^0-9A-Za-z\u00c0-\u024f]+", p) if w]
+    uniq = len(set(p.lower()))
+    if len(words) <= 1 and n < GOOD_PASS_LEN:
+        return ("weak", "Looks like a single word. Four or five unrelated words "
+                        "are far harder to guess than one long one.")
+    if uniq < 6:
+        return ("weak", f"Only {uniq} different characters -- repetition adds "
+                        f"length but almost no guesswork.")
+    if n < GOOD_PASS_LEN and len(words) < 4:
+        return ("ok", f"Usable, but {GOOD_PASS_LEN}+ characters or four or more "
+                      f"unrelated words would be markedly better.")
+    return ("good", "")
+
 def derive_key(passphrase):
     raw = hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"),
                               PBKDF2_SALT, PBKDF2_ITERS, 32)
     return {"raw": raw, "aes": AESGCM(raw)}
 
 def encrypt_msg(secret, key):
-    comp = zlib.compress(secret.encode("utf-8"), 9)
+    """deflate costs 6 bytes of framing, which a short message never earns back
+    -- so take whichever is smaller and record which in the manifest."""
+    plain = secret.encode("utf-8")
+    packed = zlib.compress(plain, 9)
+    comp = len(packed) < len(plain)
     iv = os.urandom(12)
-    body = key["aes"].encrypt(iv, comp, None)     # ciphertext + 16-byte tag
-    return iv + body
+    body = key["aes"].encrypt(iv, packed if comp else plain, None)  # ct + 16-byte tag
+    return iv + body, comp
 
-def decrypt_msg(ct, key):
+def decrypt_msg(ct, key, comp):
     iv, body = ct[:12], ct[12:]
-    comp = key["aes"].decrypt(iv, body, None)
-    return zlib.decompress(comp).decode("utf-8")
+    plain = key["aes"].decrypt(iv, body, None)
+    return (zlib.decompress(plain) if comp else plain).decode("utf-8")
 
 def _ks(raw, tag, extra, nbytes):
     """SHA-256 keystream:  seed = raw || tag(2) || extra || counter."""
@@ -387,8 +456,8 @@ def _xor(a, b):
     return bytes(x ^ y for x, y in zip(a, b))
 
 # --------------------------------------------------------- frames
-def build_manifest(raw, K, R, ctlen, bnonce, mnonce):
-    plain = bytes([K, R, (K * CHUNK - ctlen) & 0x07]) + bytes(bnonce)
+def build_manifest(raw, K, R, ctlen, bnonce, mnonce, comp):
+    plain = bytes([K, R, ((K * CHUNK - ctlen) & 0x07) | (0x08 if comp else 0)]) + bytes(bnonce)
     c = crc16(plain)
     plain += bytes([(c >> 8) & 0xff, c & 0xff])
     return bytes(mnonce) + _xor(plain, ks_manifest(raw, mnonce, len(plain)))
@@ -401,12 +470,13 @@ def parse_manifest(raw, buf):
                  ks_manifest(raw, mnonce, MANIFEST_PLAIN))
     if crc16(plain[:-2]) != ((plain[-2] << 8) | plain[-1]):
         return None
-    K, R, pad = plain[0], plain[1], plain[2]
+    K, R, flags = plain[0], plain[1], plain[2]
+    pad, comp = flags & 0x07, bool(flags & 0x08)
     bnonce = plain[3:3 + BNONCE_LEN]
     ctlen = K * CHUNK - pad
-    if K == 0 or K + R > MAX_BLOCKS or pad > 7 or ctlen <= 0:
+    if K == 0 or K + R > MAX_BLOCKS or (flags & 0xf0) or ctlen <= 0:
         return None
-    return {"K": K, "R": R, "ctlen": ctlen, "bnonce": bnonce}
+    return {"K": K, "R": R, "ctlen": ctlen, "bnonce": bnonce, "comp": comp}
 
 def build_frame(raw, idx, payload, bnonce):
     ck = crc16(bytes([idx]) + payload) & 0xff
@@ -442,7 +512,7 @@ def apply_profile(txt, profile):
 def encode(secret, key, lang="de", profile="plain", level=1, parity=2):
     raw = key["raw"]
     lv = GRAMMARS[lang][level]
-    ct = encrypt_msg(secret, key)
+    ct, comp = encrypt_msg(secret, key)
     ctlen = len(ct)
     padded = ct + b"\x00" * ((-ctlen) % CHUNK)
     K = len(padded) // CHUNK
@@ -470,7 +540,7 @@ def encode(secret, key, lang="de", profile="plain", level=1, parity=2):
 
     def manifest_section():
         mnonce = os.urandom(MNONCE_LEN)
-        buf = build_manifest(raw, K, R, ctlen, bnonce, mnonce)
+        buf = build_manifest(raw, K, R, ctlen, bnonce, mnonce, comp)
         pad = ks_pad(raw, bnonce, 0xff, pad_bytes)
         return {"lines": render_run(lv, buf, MANIFEST_BITS, pad)}
 
@@ -581,6 +651,7 @@ def decode(cover_text, key):
         return {"ok": False, "error": "No valid manifest found -- wrong passphrase, "
                                       "or this is not cover text."}
     K, R, ctlen, bnonce = man["K"], man["R"], man["ctlen"], man["bnonce"]
+    comp = man["comp"]
     tot = K + R
     lv = GRAMMARS[lang][level]
     n_sent = sentences_for(lv, FRAME_BITS)
@@ -636,7 +707,7 @@ def decode(cover_text, key):
 
     ct = b"".join(data_blocks)[:ctlen]
     try:
-        msg = decrypt_msg(ct, key)
+        msg = decrypt_msg(ct, key, comp)
         return {"ok": True, "message": msg, "tot": tot, "K": K,
                 "recovered": recovered, "R": R, "lang": lang, "level": level,
                 "warning": warning}
@@ -708,6 +779,34 @@ def _selftest():
           f"warned: {bool(r6.get('warning'))}")
     ok_all &= bool(r6.get("ok") and r6.get("message") == "Meet at six" and r6.get("warning"))
 
+    # every sentence must match exactly one shape, or decoding is a coin flip
+    import random
+    amb = []
+    for lang in ("de", "en"):
+        for level, lv in enumerate(GRAMMARS[lang]):
+            for _ in range(400):
+                bits = [random.randint(0, 1) for _ in range(lv["bits"])]
+                s = render_sentence(lv, bits)
+                hits = sum(1 for sh in lv["shapes"] if sh["re"].match(s))
+                if hits != 1 or _match(lv, s) != bits:
+                    amb.append(f"{lang} L{level}: {s!r} matched {hits}")
+                    break
+    print(f"[sentence shapes] unambiguous and reversible: "
+          f"{'yes' if not amb else 'NO -- ' + '; '.join(amb)}")
+    ok_all &= not amb
+
+    # deflate must never make the ciphertext bigger than the raw message
+    for probe in ("hi", "Meet at six", "Treffen Sonntag 18 Uhr am alten Hafen",
+                  "Treffen Sonntag 18 Uhr am alten Hafen. " * 20):
+        e = encode(probe, key, lang="en", level=1, parity=2)
+        r = decode(cover_to_text(e), key)
+        if r.get("message") != probe:
+            print(f"[compression] FAILED for {len(probe)} chars")
+            ok_all = False
+            break
+    else:
+        print("[compression] raw/deflate choice round-trips at every length")
+
     # a transport that reflows, joins or wraps lines must not matter at all
     import textwrap
     flat = " ".join(cover_to_text(enc).split("\n"))
@@ -748,6 +847,8 @@ def _main():
     pe.add_argument("--level", type=int, default=1, choices=[0, 1, 2, 3],
                     help="0=very believable ... 3=very terse")
     pe.add_argument("--parity", type=int, default=2)
+    pe.add_argument("--allow-weak-pass", action="store_true",
+                    help="encode even with a passphrase below the minimum length")
     pe.add_argument("--profile", choices=["js8call", "plain"], default="plain",
                     help="plain=lower case (default), js8call=upper case")
 
@@ -759,6 +860,17 @@ def _main():
     args = ap.parse_args()
     if args.cmd == "selftest":
         sys.exit(0 if _selftest() else 1)
+
+    if args.cmd == "encode":
+        verdict, note = rate_passphrase(args.passphrase)
+        if verdict == "reject" and not args.allow_weak_pass:
+            print("REFUSED: " + note, file=sys.stderr)
+            print("A good passphrase is four or five unrelated words, e.g. "
+                  "\"harbour-lantern-quiet-seven\". Pass --allow-weak-pass to "
+                  "override.", file=sys.stderr)
+            sys.exit(3)
+        if note:
+            print("WARNING: " + note, file=sys.stderr)
 
     key = derive_key(args.passphrase)
     if args.cmd == "encode":
