@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -130,29 +130,29 @@
 <body>
   <div class="top">
     <h1><span class="dot"></span>Cover Studio</h1>
-    <span class="sub">verschlüsselte Nachricht ⇄ unauffälliger Text · vollständig im Browser, kein Server</span>
+    <span class="sub">encrypted message ⇄ innocuous text · entirely in your browser, no server</span>
   </div>
 
   <div class="grid">
     <!-- Steuerung -->
     <div>
       <div class="card">
-        <label class="field" for="secret">Geheime Nachricht</label>
-        <textarea id="secret" placeholder="Klartext hier eintragen …">Treffen Sonntag 18 Uhr am alten Hafen.</textarea>
+        <label class="field" for="secret">Secret message</label>
+        <textarea id="secret" placeholder="Type your plaintext here …">Meet Sunday 6pm at the old harbour.</textarea>
 
-        <label class="field" for="pass" style="margin-top:14px">Schlüssel / Passphrase (beide Seiten gleich)</label>
-        <input class="txt" id="pass" type="text" spellcheck="false" value="korrektes-pferd-batterie-klammer">
+        <label class="field" for="pass" style="margin-top:14px">Key / passphrase (identical on both sides)</label>
+        <input class="txt" id="pass" type="text" spellcheck="false" value="correct-horse-battery-staple">
 
         <div class="row" style="margin-top:14px">
           <div>
-            <label class="field">Cover-Sprache</label>
+            <label class="field">Cover language</label>
             <div class="seg" id="lang">
-              <button data-v="de" aria-pressed="true">Deutsch</button>
+              <button data-v="de" aria-pressed="true">German</button>
               <button data-v="en" aria-pressed="false">English</button>
             </div>
           </div>
           <div>
-            <label class="field">Kanal</label>
+            <label class="field">Channel</label>
             <div class="seg" id="profile">
               <button data-v="js8call" aria-pressed="true">JS8Call</button>
               <button data-v="plain" aria-pressed="false">Plain</button>
@@ -161,11 +161,11 @@
         </div>
 
         <div style="margin-top:14px">
-          <label class="field">Fehlertoleranz — Parity-Blöcke (gegen Verlust ohne Nachfrage)</label>
+          <label class="field">Error tolerance — parity blocks (recover loss without a resend)</label>
           <div class="stepper">
-            <button id="pminus" aria-label="weniger Parity">−</button>
-            <div class="val"><span id="parity">2</span> Blöcke</div>
-            <button id="pplus" aria-label="mehr Parity">+</button>
+            <button id="pminus" aria-label="fewer parity blocks">−</button>
+            <div class="val"><span id="parity">2</span> blocks</div>
+            <button id="pplus" aria-label="more parity blocks">+</button>
           </div>
         </div>
       </div>
@@ -173,12 +173,12 @@
       <div class="card">
         <div class="slider-wrap">
           <div class="slider-head">
-            <span class="name">Glaubhaftigkeit</span>
-            <span class="state" id="plausLabel">glaubhaft</span>
+            <span class="name">Believability</span>
+            <span class="state" id="plausLabel">believable</span>
           </div>
           <input type="range" id="plaus" min="0" max="100" value="30" step="1"
-                 aria-label="Glaubhaftigkeit">
-          <div class="scale"><span>glaubhaft · natürlich</span><span>knapp · dicht</span></div>
+                 aria-label="Believability">
+          <div class="scale"><span>believable · natural</span><span>terse · dense</span></div>
           <div class="note" id="densityNote"></div>
         </div>
       </div>
@@ -189,51 +189,53 @@
       <div class="hero">
         <div class="counter">
           <div class="big" id="sentCount">0</div>
-          <div class="cap">SÄTZE COVER-TEXT</div>
+          <div class="cap">COVER SENTENCES</div>
         </div>
         <div class="metrics">
-          <div class="metric"><div class="n" id="chars">0</div><div class="k">ZEICHEN</div></div>
-          <div class="metric"><div class="n blue" id="blocks">0</div><div class="k">BLÖCKE (DATEN+PARITY)</div></div>
-          <div class="metric"><div class="n" id="bps">0</div><div class="k">BIT / SATZ</div></div>
-          <div class="metric"><div class="n" id="time">–</div><div class="k">SENDEDAUER JS8CALL*</div></div>
+          <div class="metric"><div class="n" id="chars">0</div><div class="k">CHARACTERS</div></div>
+          <div class="metric"><div class="n blue" id="blocks">0</div><div class="k">BLOCKS (DATA+PARITY)</div></div>
+          <div class="metric"><div class="n" id="bps">0</div><div class="k">BITS / SENTENCE</div></div>
+          <div class="metric"><div class="n" id="time">–</div><div class="k">JS8CALL AIRTIME*</div></div>
         </div>
       </div>
 
       <svg class="trace" id="trace" viewBox="0 0 600 34" preserveAspectRatio="none" aria-hidden="true"></svg>
 
       <div class="preview-head">
-        <span class="t">COVER-VORSCHAU — DAS IST DER TEXT ZUM SENDEN</span>
-        <button class="btn" id="copyBtn">Vollständig kopieren</button>
+        <span class="t">COVER PREVIEW — THIS IS THE TEXT YOU SEND</span>
+        <button class="btn" id="copyBtn">Copy all</button>
       </div>
-      <pre class="cover" id="cover"><span class="empty">Nachricht eintragen …</span></pre>
+      <pre class="cover" id="cover"><span class="empty">Type a message …</span></pre>
 
       <div class="note">
-        * grobe Schätzung für JS8Call-Normalmodus (~0,9 Zeichen/s). Bei Plain/WhatsApp
-        ist die Übertragung praktisch sofort. Die Sendedauer hängt an den Zeichen, nicht
-        an den Sätzen — der Glaubhaftigkeits-Regler verkürzt sie also wirklich.
-        Im Kanal <b>Plain</b> besteht das Cover ausschließlich aus Chat-Sätzen; die
-        Rufzeichen-Zeile im Kanal JS8Call ist reine Deko und trägt keine Daten.
-        Alles — Verschlüsselung (AES-256-GCM), Cover-Erzeugung und der Round-Trip —
-        läuft rein im Browser (WebCrypto), ohne Server.
+        * rough estimate for JS8Call normal mode (~0.9 characters/s). Over Plain/WhatsApp
+        the transfer is effectively instant. Airtime tracks <i>characters</i>, not sentences,
+        so the believability slider genuinely shortens it.
+        On the <b>Plain</b> channel the cover is nothing but chat sentences; the callsign
+        line on the JS8Call channel is pure decoration and carries no data.
+        Everything — encryption (AES-256-GCM), cover generation and the round trip —
+        runs in your browser (WebCrypto), with no server.
       </div>
     </div>
   </div>
 
-  <!-- Empfangen / Entschlüsseln -->
+  <!-- Receive / decrypt -->
   <div class="card" style="margin-top:18px">
-    <h2>Empfangen &amp; Entschlüsseln</h2>
+    <h2>Receive &amp; decrypt</h2>
     <div class="row" style="align-items:stretch">
       <div style="flex:2">
-        <label class="field" for="rx">Empfangenen Cover-Text hier einfügen</label>
-        <textarea id="rx" style="min-height:150px" placeholder="Den kompletten Cover-Text der Gegenseite einfügen …"></textarea>
+        <label class="field" for="rx">Paste the cover text you received</label>
+        <textarea id="rx" style="min-height:150px" placeholder="Paste the other side's complete cover text …"></textarea>
       </div>
       <div style="flex:1;display:flex;flex-direction:column">
-        <label class="field">Aktion</label>
-        <button class="btn primary" id="decodeBtn" style="padding:12px;margin-bottom:8px">Entschlüsseln</button>
-        <button class="btn" id="loopBtn" style="padding:10px;margin-bottom:8px">Eigenen Cover übernehmen</button>
-        <div class="note" style="margin-top:2px">Nutzt dieselbe Passphrase wie oben.
-          Sprache &amp; Dichte werden automatisch aus dem Cover erkannt.</div>
-        <div class="result" id="rxResult" style="margin-top:auto"><span class="empty">Noch nichts entschlüsselt.</span></div>
+        <label class="field">Action</label>
+        <button class="btn primary" id="decodeBtn" style="padding:12px;margin-bottom:8px">Decrypt</button>
+        <button class="btn" id="loopBtn" style="padding:10px;margin-bottom:8px">Test with my own cover</button>
+        <div class="note" style="margin-top:2px">Uses the same passphrase as above.
+          Language and density are detected from the cover automatically.
+          <b>Test with my own cover</b> pastes the cover you just generated into the box
+          on the left and decrypts it — a loopback check that encode and decode agree.</div>
+        <div class="result" id="rxResult" style="margin-top:auto"><span class="empty">Nothing decrypted yet.</span></div>
       </div>
     </div>
   </div>
@@ -564,7 +566,7 @@ async function encode(secret, keyObj, lang, profile, level, parity){
   const ct=await encryptMsg(secret, keyObj);
   const ctlen=ct.length;
   const K=Math.ceil(ctlen/CHUNK);
-  if(K>MAX_BLOCKS) throw new Error(`Nachricht zu lang — ${K} Datenblöcke, erlaubt sind ${MAX_BLOCKS}.`);
+  if(K>MAX_BLOCKS) throw new Error(`Message too long — ${K} data blocks, the limit is ${MAX_BLOCKS}.`);
   const padded=new Uint8Array(K*CHUNK); padded.set(ct,0);
   const data=[]; for(let i=0;i<K;i++) data.push(padded.subarray(i*CHUNK,(i+1)*CHUNK));
   const R=Math.min(parity, Math.max(0, MAX_BLOCKS-K));
@@ -641,7 +643,7 @@ async function decode(coverText, keyObj){
   const raw=keyObj.raw;
   const lines=normLines(coverText);
   const f=await findManifest(raw, lines);
-  if(!f) return {ok:false, error:"Kein gültiges Manifest gefunden — falsche Passphrase oder kein Cover-Text."};
+  if(!f) return {ok:false, error:"No valid manifest found — wrong passphrase, or this is not cover text."};
   const {man, lang, level, spans}=f;
   const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, tot=K+R;
   const lv=GRAMMARS[lang][level];
@@ -678,7 +680,7 @@ async function decode(coverText, keyObj){
     const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
     const Ainv=matInv(A,K);
     if(!Ainv) return {ok:false, missing:dataMissing, tot, K, recovered:false,
-                      error:"Rekonstruktion fehlgeschlagen."};
+                      error:"Reconstruction failed."};
     dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
     for(let j=0;j<CHUNK;j++){
       const rhs=surv.map(idx=>found[idx][j]);
@@ -695,7 +697,7 @@ async function decode(coverText, keyObj){
   try{ const msg=await decryptMsg(ct, keyObj);
     return {ok:true, message:msg, tot, K, recovered, R, lang, level}; }
   catch(e){ return {ok:false, tot, K,
-    error:"Entschlüsselung fehlgeschlagen — falsche Passphrase oder zu viele Datenfehler."}; }
+    error:"Decryption failed — wrong passphrase, or too many damaged blocks."}; }
 }
 
 /* ==================================================================== UI */
@@ -703,12 +705,12 @@ const state={secret:"", pass:"", lang:"de", profile:"js8call", parity:2, plaus:3
 let lastCover="";
 
 function levelFromPlaus(p){ return p<25?0 : p<50?1 : p<75?2 : 3; }
-const LEVEL_LABEL=["sehr glaubhaft","glaubhaft","knapp","sehr knapp"];
+const LEVEL_LABEL=["very believable","believable","terse","very terse"];
 const LEVEL_DESC=[
-  "Nur die alltäglichsten Wörter — klingt am natürlichsten, braucht aber die meisten Sätze.",
-  "Guter Kompromiss: etwas ungewöhnlichere Wortwahl, spürbar weniger Text.",
-  "Breite Wortlisten und knappe Halbsätze ohne Verb — merklich gestelzt, deutlich kürzer.",
-  "Telegrammstil ohne Artikel und Verb: kürzester Cover, klingt aber klar künstlich."
+  "Only the most everyday words — sounds most natural, but needs the most sentences.",
+  "Good compromise: slightly more unusual word choice, noticeably less text.",
+  "Wide word lists and clipped verbless clauses — audibly stilted, much shorter.",
+  "Telegraphic, no articles or verbs: shortest cover, but clearly artificial."
 ];
 const $=id=>document.getElementById(id);
 
@@ -725,7 +727,7 @@ async function recompute(){
 
   const cover=$("cover");
   if(!secret.trim() || !pass){
-    cover.innerHTML='<span class="empty">'+(!pass?"Passphrase eingeben …":"Nachricht eintragen …")+'</span>';
+    cover.innerHTML='<span class="empty">'+(!pass?"Enter a passphrase …":"Type a message …")+'</span>';
     for(const id of ["sentCount","chars"]) $(id).textContent="0";
     $("blocks").textContent="0"; $("time").textContent="–"; lastCover=""; return;
   }
@@ -733,7 +735,7 @@ async function recompute(){
   let keyObj; try{ keyObj=await deriveKey(pass); }catch(e){ return; }
   if(my!==recomputeToken) return;
   let enc; try{ enc=await encode(secret, keyObj, lang, profile, level, parity); }
-  catch(e){ cover.innerHTML='<span class="empty">Fehler: '+e.message+'</span>'; return; }
+  catch(e){ cover.innerHTML='<span class="empty">Error: '+e.message+'</span>'; return; }
   if(my!==recomputeToken) return;
 
   lastCover=coverToText(enc);
@@ -753,15 +755,15 @@ async function recompute(){
     if(profile==="js8call" && s.header) html+='<span class="hdr">'+applyProfile(s.header,profile)+"</span>\n";
     html+=s.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
   }
-  if(enc.sections.length>shown) html+="\n… +"+(enc.sections.length-shown)+" weitere Abschnitte — gesamt "+totalSent+" Sätze. Knopf „Vollständig kopieren“ liefert alles.";
+  if(enc.sections.length>shown) html+="\n… +"+(enc.sections.length-shown)+" more sections — "+totalSent+" sentences in total. The “Copy all” button gives you everything.";
   cover.innerHTML=html;
 
-  $("sentCount").textContent=totalSent.toLocaleString("de");
-  $("chars").textContent=totalChars.toLocaleString("de");
+  $("sentCount").textContent=totalSent.toLocaleString("en");
+  $("chars").textContent=totalChars.toLocaleString("en");
   $("blocks").textContent=enc.K+"+"+enc.R;
   if(profile==="js8call"){ const secs=Math.round(totalChars/0.9);
     const m=Math.floor(secs/60), s=secs%60; $("time").textContent=m>0?`${m}m ${s}s`:`${s}s`; }
-  else $("time").textContent="sofort";
+  else $("time").textContent="instant";
 }
 
 function drawTrace(bits){
@@ -776,22 +778,22 @@ function getCss(v){ return getComputedStyle(document.documentElement).getPropert
 /* ---- Decode-UI ---- */
 async function runDecode(){
   const box=$("rxResult"); const txt=$("rx").value;
-  if(!txt.trim()){ box.className="result"; box.innerHTML='<span class="empty">Bitte Cover-Text einfügen.</span>'; return; }
-  if(!state.pass){ box.className="result bad"; box.innerHTML='<span class="lbl">Fehler</span><span class="msg">Passphrase fehlt.</span>'; return; }
-  box.className="result"; box.innerHTML='<span class="empty">Entschlüssele …</span>';
+  if(!txt.trim()){ box.className="result"; box.innerHTML='<span class="empty">Paste the cover text first.</span>'; return; }
+  if(!state.pass){ box.className="result bad"; box.innerHTML='<span class="lbl">Error</span><span class="msg">Passphrase is missing.</span>'; return; }
+  box.className="result"; box.innerHTML='<span class="empty">Decrypting …</span>';
   let keyObj; try{ keyObj=await deriveKey(state.pass); }catch(e){ return; }
   const r=await decode(txt, keyObj);
   if(r.ok){
     box.className="result ok";
-    const pill=r.recovered?'<span class="pill green">via Parity rekonstruiert</span>':'<span class="pill">sauber</span>';
-    box.innerHTML='<span class="lbl">Entschlüsselt '+pill+'</span><span class="msg">'+escapeHtml(r.message)+'</span>';
+    const pill=r.recovered?'<span class="pill green">recovered via parity</span>':'<span class="pill">clean</span>';
+    box.innerHTML='<span class="lbl">Decrypted '+pill+'</span><span class="msg">'+escapeHtml(r.message)+'</span>';
   } else if(r.missing && r.missing.length){
     box.className="result bad";
-    box.innerHTML='<span class="lbl">NACK — nachfordern</span><span class="msg">Fehlende Datenblöcke: '
-      +r.missing.join(", ")+' von '+r.tot+' (Parity reicht nicht).</span>';
+    box.innerHTML='<span class="lbl">NACK — request a resend</span><span class="msg">Missing data blocks: '
+      +r.missing.join(", ")+' of '+r.tot+' (parity is not enough).</span>';
   } else {
     box.className="result bad";
-    box.innerHTML='<span class="lbl">Fehler</span><span class="msg">'+escapeHtml(r.error||"Unbekannter Fehler")+'</span>';
+    box.innerHTML='<span class="lbl">Error</span><span class="msg">'+escapeHtml(r.error||"Unknown error")+'</span>';
   }
 }
 function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -812,7 +814,7 @@ $("pminus").addEventListener("click",()=>setParity(state.parity-1));
 $("pplus").addEventListener("click",()=>setParity(state.parity+1));
 $("copyBtn").addEventListener("click",()=>{ if(!lastCover) return;
   navigator.clipboard?.writeText(lastCover);
-  const b=$("copyBtn"); b.textContent="Kopiert ✓"; setTimeout(()=>b.textContent="Vollständig kopieren",1200); });
+  const b=$("copyBtn"); b.textContent="Copied ✓"; setTimeout(()=>b.textContent="Copy all",1200); });
 $("decodeBtn").addEventListener("click",runDecode);
 $("loopBtn").addEventListener("click",()=>{ $("rx").value=lastCover; runDecode(); });
 
