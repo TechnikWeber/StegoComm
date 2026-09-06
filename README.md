@@ -15,6 +15,16 @@ Two interoperable implementations that speak the exact same wire format:
 
 A message encoded in the browser can be decoded by the Python CLI and vice versa.
 
+![The browser tool: a message on the left, the cover it produces on the right](docs/cover-studio.jpg)
+
+*The browser tool. Left: what you type and how the cover is built. Right: the
+cover to send, with a live count of how much it inflates your message.*
+
+![The same message in the compact numbers format](docs/cover-studio-compact.jpg)
+
+*The same message with the disguise switched off — 354 characters instead of
+1741, and a plain warning that this no longer hides anything.*
+
 > ⚠️ **This is a proof of concept, not audited security software.** It demonstrates the architecture (real AEAD encryption inside a steganographic text cover with forward error correction). Do not rely on it for protecting people at risk without an independent security review.
 
 ---

@@ -15,6 +15,17 @@ Zwei zusammenspielende Implementierungen mit exakt demselben Wire-Format:
 
 Eine im Browser kodierte Nachricht lässt sich mit der Python-CLI dekodieren und umgekehrt.
 
+![Das Browser-Tool: links die Nachricht, rechts der erzeugte Cover](docs/cover-studio.jpg)
+
+*Das Browser-Tool. Links, was du eintippst und woraus der Cover gebaut wird.
+Rechts der Text zum Senden, mit laufender Anzeige, wie stark er die Nachricht
+aufbläht.*
+
+![Dieselbe Nachricht im kompakten Ziffernformat](docs/cover-studio-compact.jpg)
+
+*Dieselbe Nachricht mit abgeschalteter Tarnung — 354 statt 1741 Zeichen, und ein
+deutlicher Hinweis, dass hier nichts mehr versteckt wird.*
+
 > ⚠️ **Das ist ein Proof of Concept, keine auditierte Sicherheitssoftware.** Es zeigt die Architektur (echte AEAD-Verschlüsselung in einem steganographischen Text-Cover mit Vorwärtsfehlerkorrektur). Verlass dich damit nicht auf den Schutz gefährdeter Menschen ohne unabhängiges Sicherheitsreview.
 
 ---
