@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cover Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0C141B; --panel:#131F29; --panel2:#0F1922; --line:#223240;
+    --amber:#F4B740; --blue:#4C9BE8; --green:#5FD08A; --danger:#E4636F;
+    --text:#E8EFF4; --muted:#7C93A4;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    --sans:"Space Grotesk",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #16283400, #0C141B),
+      var(--ink);
+    color:var(--text); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+    padding:22px; max-width:1180px; margin:0 auto;
+  }
+  .top{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:4px}
+  .top h1{font-size:19px; font-weight:700; letter-spacing:.02em; margin:0}
+  .top .sub{color:var(--muted); font-size:13px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);
+       box-shadow:0 0 12px var(--amber);display:inline-block;vertical-align:middle;margin-right:8px}
+
+  .grid{display:grid; grid-template-columns:minmax(300px,380px) 1fr; gap:18px; margin-top:16px}
+  @media(max-width:820px){ .grid{grid-template-columns:1fr} }
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));
+        border:1px solid var(--line); border-radius:14px; padding:18px}
+  .card + .card{margin-top:16px}
+  .card h2{font-size:13px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;
+    margin:0 0 14px;font-weight:600}
+
+  label.field{display:block; font-size:12px; color:var(--muted); margin:0 0 7px;
+              letter-spacing:.04em}
+  textarea, input.txt, .seg{width:100%}
+  textarea, input.txt{background:#0A121A; color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:12px; font-family:var(--mono); font-size:14px;}
+  textarea{resize:vertical; min-height:74px}
+  input.txt{height:44px}
+  textarea:focus, input.txt:focus{outline:2px solid var(--blue); outline-offset:1px; border-color:transparent}
+
+  .seg{display:flex; gap:6px; background:#0A121A; border:1px solid var(--line);
+       border-radius:10px; padding:4px}
+  .seg button{flex:1; background:transparent; color:var(--muted); border:0;
+    padding:8px 6px; border-radius:7px; font-family:var(--sans); font-size:13px;
+    font-weight:500; cursor:pointer}
+  .seg button[aria-pressed="true"]{background:#1C2C39; color:var(--text)}
+  .seg button:focus-visible{outline:2px solid var(--blue)}
+
+  .row{display:flex; gap:14px}
+  .row > div{flex:1}
+
+  .stepper{display:flex; align-items:center; gap:0; background:#0A121A;
+    border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .stepper button{background:transparent;color:var(--text);border:0;width:42px;
+    height:40px;font-size:18px;cursor:pointer}
+  .stepper button:hover{background:#1C2C39}
+  .stepper .val{flex:1;text-align:center;font-family:var(--mono);font-size:15px}
+
+  /* Plausibilitaets-Regler */
+  .slider-wrap{margin-top:4px}
+  .slider-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .slider-head .name{font-size:15px;font-weight:500}
+  .slider-head .state{font-family:var(--mono);font-size:13px;color:var(--amber)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;
+    border-radius:6px;background:var(--track,linear-gradient(90deg,var(--amber),var(--danger)));
+    outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;
+    border-radius:50%;background:#0C141B;border:3px solid var(--amber);cursor:pointer;
+    box-shadow:0 0 0 1px #000, 0 2px 8px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+    background:#0C141B;border:3px solid var(--amber);cursor:pointer}
+  input[type=range]:focus-visible{outline:2px solid var(--blue);outline-offset:6px}
+  .scale{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
+    margin-top:8px;letter-spacing:.03em}
+
+  /* Hero-Readout */
+  .hero{display:flex;flex-wrap:wrap;gap:20px 34px;align-items:flex-end;
+        padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px}
+  .counter .big{font-family:var(--mono);font-weight:600;color:var(--amber);
+    font-size:clamp(44px,9vw,74px);line-height:.9;letter-spacing:-.02em;
+    text-shadow:0 0 26px rgba(244,183,64,.28); font-variant-numeric:tabular-nums}
+  .counter .cap{font-size:12px;color:var(--muted);margin-top:8px;letter-spacing:.04em}
+  .metrics{display:flex;gap:26px;flex-wrap:wrap}
+  .metric .n{font-family:var(--mono);font-size:22px;color:var(--text);
+    font-variant-numeric:tabular-nums}
+  .metric .n.blue{color:var(--blue)}
+  .metric .k{font-size:11px;color:var(--muted);letter-spacing:.04em;margin-top:3px}
+
+  .trace{width:100%;height:34px;display:block;margin:2px 0 14px}
+
+  .preview-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .preview-head .t{font-size:12px;color:var(--muted);letter-spacing:.04em}
+  .btn{background:#1C2C39;color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:6px 12px;font-family:var(--sans);font-size:12px;cursor:pointer}
+  .btn:hover{border-color:var(--blue)}
+  .btn.primary{background:#16324a;border-color:#2c567c}
+  pre.cover{background:#0A121A;border:1px solid var(--line);border-radius:10px;
+    padding:14px;font-family:var(--mono);font-size:13px;line-height:1.7;
+    white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;margin:0;
+    color:#D5E2EC}
+  pre.cover .hdr{color:var(--blue)}
+  .empty{color:var(--muted);font-style:normal}
+  .note{color:var(--muted);font-size:12px;margin-top:12px;line-height:1.55}
+  .warnpad{color:var(--amber)}
+  code{font-family:var(--mono);background:#0A121A;padding:1px 5px;border-radius:5px}
+
+  .result{margin-top:12px;border-radius:10px;padding:12px 14px;font-size:14px;
+    border:1px solid var(--line);background:#0A121A;min-height:20px}
+  .result.ok{border-color:#2f6b48;background:#0e2118}
+  .result.bad{border-color:#6b3138;background:#211012}
+  .result .lbl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px}
+  .result.ok .lbl{color:var(--green)} .result.bad .lbl{color:var(--danger)}
+  .result .msg{font-family:var(--mono);font-size:14px;color:var(--text);word-break:break-word}
+  .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:20px;
+    background:#16324a;color:var(--blue);margin-left:8px}
+  .pill.green{background:#0e2118;color:var(--green)}
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1><span class="dot"></span>Cover Studio</h1>
+    <span class="sub">verschlüsselte Nachricht ⇄ unauffälliger Text · vollständig im Browser, kein Server</span>
+  </div>
+
+  <div class="grid">
+    <!-- Steuerung -->
+    <div>
+      <div class="card">
+        <label class="field" for="secret">Geheime Nachricht</label>
+        <textarea id="secret" placeholder="Klartext hier eintragen …">Treffen Sonntag 18 Uhr am alten Hafen.</textarea>
+
+        <label class="field" for="pass" style="margin-top:14px">Schlüssel / Passphrase (beide Seiten gleich)</label>
+        <input class="txt" id="pass" type="text" spellcheck="false" value="korrektes-pferd-batterie-klammer">
+
+        <div class="row" style="margin-top:14px">
+          <div>
+            <label class="field">Cover-Sprache</label>
+            <div class="seg" id="lang">
+              <button data-v="de" aria-pressed="true">Deutsch</button>
+              <button data-v="en" aria-pressed="false">English</button>
+            </div>
+          </div>
+          <div>
+            <label class="field">Kanal</label>
+            <div class="seg" id="profile">
+              <button data-v="js8call" aria-pressed="true">JS8Call</button>
+              <button data-v="plain" aria-pressed="false">Plain</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <label class="field">Fehlertoleranz — Parity-Blöcke (gegen Verlust ohne Nachfrage)</label>
+          <div class="stepper">
+            <button id="pminus" aria-label="weniger Parity">−</button>
+            <div class="val"><span id="parity">2</span> Blöcke</div>
+            <button id="pplus" aria-label="mehr Parity">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="slider-wrap">
+          <div class="slider-head">
+            <span class="name">Glaubhaftigkeit</span>
+            <span class="state" id="plausLabel">glaubhaft</span>
+          </div>
+          <input type="range" id="plaus" min="0" max="100" value="30" step="1"
+                 aria-label="Glaubhaftigkeit">
+          <div class="scale"><span>glaubhaft · natürlich</span><span>knapp · dicht</span></div>
+          <div class="note" id="densityNote"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ausgabe -->
+    <div class="card">
+      <div class="hero">
+        <div class="counter">
+          <div class="big" id="sentCount">0</div>
+          <div class="cap">SÄTZE COVER-TEXT</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="n" id="chars">0</div><div class="k">ZEICHEN</div></div>
+          <div class="metric"><div class="n blue" id="blocks">0</div><div class="k">BLÖCKE (DATEN+PARITY)</div></div>
+          <div class="metric"><div class="n" id="bps">0</div><div class="k">BIT / SATZ</div></div>
+          <div class="metric"><div class="n" id="time">–</div><div class="k">SENDEDAUER JS8CALL*</div></div>
+        </div>
+      </div>
+
+      <svg class="trace" id="trace" viewBox="0 0 600 34" preserveAspectRatio="none" aria-hidden="true"></svg>
+
+      <div class="preview-head">
+        <span class="t">COVER-VORSCHAU — DAS IST DER TEXT ZUM SENDEN</span>
+        <button class="btn" id="copyBtn">Vollständig kopieren</button>
+      </div>
+      <pre class="cover" id="cover"><span class="empty">Nachricht eintragen …</span></pre>
+
+      <div class="note">
+        * grobe Schätzung für JS8Call-Normalmodus (~0,9 Zeichen/s). Bei Plain/WhatsApp
+        ist die Übertragung praktisch sofort. Alles — Verschlüsselung (AES-256-GCM),
+        Cover-Erzeugung und der Round-Trip — läuft rein im Browser (WebCrypto), ohne Server.
+      </div>
+    </div>
+  </div>
+
+  <!-- Empfangen / Entschlüsseln -->
+  <div class="card" style="margin-top:18px">
+    <h2>Empfangen &amp; Entschlüsseln</h2>
+    <div class="row" style="align-items:stretch">
+      <div style="flex:2">
+        <label class="field" for="rx">Empfangenen Cover-Text hier einfügen</label>
+        <textarea id="rx" style="min-height:150px" placeholder="Den kompletten Cover-Text der Gegenseite einfügen …"></textarea>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column">
+        <label class="field">Aktion</label>
+        <button class="btn primary" id="decodeBtn" style="padding:12px;margin-bottom:8px">Entschlüsseln</button>
+        <button class="btn" id="loopBtn" style="padding:10px;margin-bottom:8px">Eigenen Cover übernehmen</button>
+        <div class="note" style="margin-top:2px">Nutzt dieselbe Passphrase wie oben.
+          Sprache &amp; Dichte werden automatisch aus dem Cover erkannt.</div>
+        <div class="result" id="rxResult" style="margin-top:auto"><span class="empty">Noch nichts entschlüsselt.</span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+/* =====================================================================
+   StegoComm — Cover Studio (self-contained, in-browser encode + decode)
+   Pipeline:  Klartext -> deflate -> AES-256-GCM (iv||ct||tag)
+              -> in 8-Byte-Blöcke -> +R Cross-Block-Parity (Reed-Solomon/GF256)
+              -> Bits pro Block in Cover-Sätze (variable Dichte je Regler)
+              -> Rest-Bits mit schlüsselabgeleitetem Zufalls-Padding gefüllt
+   Decode geht rückwärts; per-Block-CRC erkennt Beschädigung -> als Erasure
+   behandelt und via Parity ohne Nachfrage rekonstruiert (bis zur Parity-Grenze),
+   sonst NACK mit fehlenden Blöcken.
+   ===================================================================== */
+
+const CHUNK = 8;                 // Byte pro Block
+const BLOCK_BITS = CHUNK * 8;    // 64
+
+/* ---------------------------------------------------- GF(256) Arithmetik */
+const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+(function(){ let x=1; for(let i=0;i<255;i++){ EXP[i]=x; LOG[x]=i; x<<=1; if(x&0x100) x^=0x11d; }
+  for(let i=255;i<512;i++) EXP[i]=EXP[i-255]; })();
+function gmul(a,b){ return (a===0||b===0)?0:EXP[LOG[a]+LOG[b]]; }
+function ginv(a){ return EXP[255-LOG[a]]; }
+
+/* Cauchy-Kodiermatrix R×K (jede quadratische Teilmatrix invertierbar -> MDS) */
+function cauchy(R,K){
+  const P=[];
+  for(let r=0;r<R;r++){ const row=new Uint8Array(K); const xr=255-r;
+    for(let i=0;i<K;i++) row[i]=ginv(xr ^ i);   // xr != i garantiert (siehe encode-Grenze)
+    P.push(row); }
+  return P;
+}
+function unit(i,n){ const r=new Uint8Array(n); r[i]=1; return r; }
+/* GF(256)-Matrixinverse via Gauss-Jordan */
+function matInv(M,n){
+  const A=M.map(r=>Uint8Array.from(r));
+  const I=[]; for(let i=0;i<n;i++){ I.push(new Uint8Array(n)); I[i][i]=1; }
+  for(let c=0;c<n;c++){
+    let p=c; while(p<n && A[p][c]===0) p++; if(p===n) return null;
+    if(p!==c){ [A[p],A[c]]=[A[c],A[p]]; [I[p],I[c]]=[I[c],I[p]]; }
+    const inv=ginv(A[c][c]);
+    for(let j=0;j<n;j++){ A[c][j]=gmul(A[c][j],inv); I[c][j]=gmul(I[c][j],inv); }
+    for(let r=0;r<n;r++){ if(r===c) continue; const f=A[r][c]; if(!f) continue;
+      for(let j=0;j<n;j++){ A[r][j]^=gmul(f,A[c][j]); I[r][j]^=gmul(f,I[c][j]); } }
+  }
+  return I;
+}
+
+/* ---------------------------------------------------- Bit-Helfer + CRC */
+function bytesToBits(bytes){ const bits=[]; for(const b of bytes) for(let i=7;i>=0;i--) bits.push((b>>i)&1); return bits; }
+function bitsToBytes(bits){ const out=new Uint8Array(bits.length>>3);
+  for(let i=0;i<out.length;i++){ let v=0; for(let j=0;j<8;j++) v=(v<<1)|bits[i*8+j]; out[i]=v; } return out; }
+function crc16(bytes){ let c=0xffff; for(const b of bytes){ c^=b<<8;
+  for(let i=0;i<8;i++) c=(c&0x8000)?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff; } return c&0xffff; }
+
+/* ---------------------------------------------------- Grammatiken DE/EN
+   Jede Wortliste hat exakt 2/4/8 Einträge -> 1/2/3 Bit, reversibel dekodierbar. */
+const POOLS = {
+  en:{
+    adv:["well","so","anyway","also"],
+    noun:["weather","signal","band","rig","coffee","garden","antenna","traffic"],
+    adj:["good","fine","poor","strong","quiet","noisy","steady","clear"],
+    adj2:["warm","cool","calm","windy","bright","cloudy","dry","damp"],
+    noun2:["news","plan","crew","path","gear","tower","wire","shack"],
+    adj3:["ready","late","close","set","open","slow","near","short"],
+    adv2:["today","later","soon","yet"],
+    adj4:["stable","tough","fresh","flat","light","dense","firm","mild"],
+    end:["here","now","again","still"],
+  },
+  de:{
+    adv:["naja","also","tja","ansonsten"],
+    noun:["wetter","signal","band","funk","kaffee","garten","antenne","verkehr"],
+    adj:["gut","fein","mau","stark","ruhig","laut","stetig","klar"],
+    adj2:["warm","kuehl","still","windig","hell","trueb","trocken","feucht"],
+    noun2:["plan","nachbar","kollege","weg","empfang","turm","draht","huette"],
+    adj3:["bereit","spaet","nah","fertig","offen","langsam","knapp","matt"],
+    adv2:["heute","spaeter","gleich","wohl"],
+    adj4:["stabil","zaeh","frisch","flach","leicht","dicht","fest","mild"],
+    end:["hier","jetzt","wieder","noch"],
+  },
+};
+const TEMPLATES = {
+  en:[
+    "the {noun} is {adj} {end}",
+    "{adv} the {noun} is {adj} and {adj2} {end}",
+    "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}",
+    "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}, {adv2} it stays {adj4}",
+  ],
+  de:[
+    "das {noun} ist {adj} {end}",
+    "{adv} das {noun} ist {adj} und {adj2} {end}",
+    "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}",
+    "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}, {adv2} bleibt es {adj4}",
+  ],
+};
+const NAMES = ["W1ABC","DL2XYZ","OH5QQ","VK3RT","G0MNP"];
+
+function escapeRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
+const GRAMMARS = {};
+(function initGrammars(){
+  for(const lang of ["de","en"]){
+    const pools=POOLS[lang];
+    GRAMMARS[lang]=TEMPLATES[lang].map(tpl=>{
+      const order=[]; let m; const re=/\{(\w+)\}/g;
+      while((m=re.exec(tpl))) order.push(m[1]);
+      let bits=0; order.forEach(n=>bits+=Math.log2(pools[n].length));
+      // Regex zum Parsen
+      let pat="", last=0; re.lastIndex=0;
+      while((m=re.exec(tpl))){ pat+=escapeRe(tpl.slice(last,m.index));
+        pat+="("+pools[m[1]].map(escapeRe).join("|")+")"; last=m.index+m[0].length; }
+      pat+=escapeRe(tpl.slice(last));
+      return {tpl, pools, order, bits, _re:new RegExp("^"+pat+"$")};
+    });
+  }
+})();
+
+function renderSentence(lv, bits){
+  let idx=0; const w={};
+  for(const name of lv.order){ const opts=lv.pools[name]; const width=Math.log2(opts.length);
+    let v=0; for(let b=0;b<width;b++) v=(v<<1)|bits[idx++]; w[name]=opts[v]; }
+  return lv.tpl.replace(/\{(\w+)\}/g,(_,k)=>w[k]);
+}
+function parseSentence(lv, line){
+  const m=lv._re.exec(line.trim().replace(/[.\s]+$/,""));
+  if(!m) return null;
+  const bits=[];
+  lv.order.forEach((name,i)=>{ const opts=lv.pools[name]; const v=opts.indexOf(m[i+1]);
+    const width=Math.log2(opts.length); for(let b=width-1;b>=0;b--) bits.push((v>>b)&1); });
+  return bits;
+}
+
+/* ---------------------------------------------------- Krypto (WebCrypto) */
+async function deflate(bytes){ const cs=new CompressionStream("deflate");
+  const w=cs.writable.getWriter(); w.write(bytes); w.close();
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer()); }
+async function inflate(bytes){ const ds=new DecompressionStream("deflate");
+  const w=ds.writable.getWriter(); w.write(bytes); w.close();
+  return new Uint8Array(await new Response(ds.readable).arrayBuffer()); }
+
+const _keyCache={pass:null, obj:null};
+async function deriveKey(pass){
+  if(_keyCache.pass===pass && _keyCache.obj) return _keyCache.obj;
+  const enc=new TextEncoder();
+  const base=await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits","deriveKey"]);
+  const salt=enc.encode("stegocomm/v3/pbkdf2");
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"}, base, 256);
+  const raw=new Uint8Array(bits);
+  const akey=await crypto.subtle.importKey("raw", raw, {name:"AES-GCM"}, false, ["encrypt","decrypt"]);
+  _keyCache.pass=pass; _keyCache.obj={akey, raw};
+  return _keyCache.obj;
+}
+async function encryptMsg(secret, keyObj){
+  const comp=await deflate(new TextEncoder().encode(secret));
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const body=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv}, keyObj.akey, comp));
+  const out=new Uint8Array(12+body.length); out.set(iv,0); out.set(body,12);
+  return out;
+}
+async function decryptMsg(ct, keyObj){
+  const iv=ct.slice(0,12), body=ct.slice(12);
+  const comp=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv}, keyObj.akey, body));
+  return new TextDecoder().decode(await inflate(comp));
+}
+async function keystream(raw, idx, nbytes){
+  const out=new Uint8Array(nbytes); let off=0, ctr=0;
+  while(off<nbytes){
+    const seed=new Uint8Array(raw.length+4); seed.set(raw,0);
+    seed[raw.length]=0x50; seed[raw.length+1]=0x41; seed[raw.length+2]=idx&0xff; seed[raw.length+3]=ctr&0xff;
+    const h=new Uint8Array(await crypto.subtle.digest("SHA-256", seed));
+    const take=Math.min(h.length, nbytes-off); out.set(h.subarray(0,take), off); off+=take; ctr++;
+  }
+  return out;
+}
+
+/* ---------------------------------------------------- Encode / Decode */
+function applyProfile(txt, profile){ return profile==="js8call" ? txt.toUpperCase() : txt.toLowerCase(); }
+
+async function renderBlock(idx, tot, K, ctlen, level, lang, dataBytes, raw){
+  const lv=GRAMMARS[lang][level];
+  const bits=bytesToBits(dataBytes);                 // 64
+  const sPerBlock=Math.ceil(BLOCK_BITS/lv.bits);
+  const need=sPerBlock*lv.bits-BLOCK_BITS;
+  if(need>0){ const ks=await keystream(raw, idx, Math.ceil(need/8));
+    const kb=bytesToBits(ks).slice(0,need); for(const b of kb) bits.push(b); }
+  const ck=crc16(dataBytes)&0xff;
+  const header=`DE ${NAMES[idx%NAMES.length]} MSG ${idx}/${tot} K ${K} SZ ${ctlen} LV ${level} CK ${ck}`;
+  const lines=[]; for(let i=0;i<sPerBlock;i++) lines.push(renderSentence(lv, bits.slice(i*lv.bits,(i+1)*lv.bits)));
+  return {header, lines};
+}
+
+async function encode(secret, keyObj, lang, profile, level, parity){
+  const ct=await encryptMsg(secret, keyObj);
+  const ctlen=ct.length;
+  const padded=new Uint8Array(Math.ceil(ctlen/CHUNK)*CHUNK); padded.set(ct);
+  const K=padded.length/CHUNK;
+  const data=[]; for(let i=0;i<K;i++) data.push(padded.slice(i*CHUNK,(i+1)*CHUNK));
+  const R=Math.min(parity, Math.max(0,255-K));
+  const parityBlocks=[];
+  if(R>0){
+    const P=cauchy(R,K);
+    for(let r=0;r<R;r++){ const pb=new Uint8Array(CHUNK);
+      for(let j=0;j<CHUNK;j++){ let acc=0; for(let i=0;i<K;i++) acc^=gmul(P[r][i], data[i][j]); pb[j]=acc; }
+      parityBlocks.push(pb); }
+  }
+  const all=data.concat(parityBlocks); const tot=all.length;
+  const blocks=[];
+  for(let i=0;i<tot;i++) blocks.push(await renderBlock(i,tot,K,ctlen,level,lang,all[i],keyObj.raw));
+  return {blocks, K, R, tot, ctlen, level, lang, profile};
+}
+
+function coverToText(enc){
+  const parts=[];
+  for(const b of enc.blocks){
+    parts.push(applyProfile(b.header, enc.profile));
+    for(const l of b.lines) parts.push(applyProfile(l, enc.profile));
+  }
+  return parts.join("\n");
+}
+
+const HEADER_RE=/^de (\S+) msg (\d+)\/(\d+) k (\d+) sz (\d+) lv (\d+) ck (\d+)$/;
+async function decode(coverText, keyObj){
+  const lines=coverText.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length)
+                       .map(l=>l.toLowerCase().replace(/[.\s]+$/,""));
+  let i=0, tot=null, K=null, ctlen=null, lang=null; const found={};
+  while(i<lines.length){
+    const mh=HEADER_RE.exec(lines[i]);
+    if(!mh){ i++; continue; }
+    const idx=+mh[2]; tot=+mh[3]; K=+mh[4]; ctlen=+mh[5]; const level=+mh[6], ck=+mh[7];
+    i++;
+    if(lang===null){ for(const L of ["de","en"]){ const lv=GRAMMARS[L][level];
+      if(lv && lv._re.test(lines[i]||"")){ lang=L; break; } } }
+    const lv=(lang!==null)?GRAMMARS[lang][level]:null;
+    if(!lv){ continue; }
+    const sPerBlock=Math.ceil(BLOCK_BITS/lv.bits);
+    let bits=[], good=true;
+    for(let s=0;s<sPerBlock;s++){ const pb=parseSentence(lv, lines[i]||""); i++;
+      if(pb===null){ good=false; break; } bits=bits.concat(pb); }
+    if(!good) continue;
+    const bytes=bitsToBytes(bits.slice(0,BLOCK_BITS));
+    if((crc16(bytes)&0xff)!==ck) continue;         // beschädigt -> als Erasure behandeln
+    found[idx]=bytes;
+  }
+  if(tot===null||K===null) return {ok:false, error:"Kein gültiger Cover-Block erkannt."};
+  const R=tot-K;
+  const dataMissing=[]; for(let d=0;d<K;d++) if(!(d in found)) dataMissing.push(d);
+  const present=Object.keys(found).map(Number).sort((a,b)=>a-b);
+
+  let dataBlocks;
+  if(dataMissing.length===0){
+    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(found[d]);
+  } else if(present.length>=K){
+    const P=cauchy(R,K);
+    const surv=present.slice(0,K);
+    const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
+    const Ainv=matInv(A,K);
+    if(!Ainv) return {ok:false, missing:dataMissing, tot, K, recovered:false,
+                      error:"Rekonstruktion fehlgeschlagen."};
+    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
+    for(let j=0;j<CHUNK;j++){ const rhs=surv.map(idx=>found[idx][j]);
+      for(let d=0;d<K;d++){ let acc=0; for(let m=0;m<K;m++) acc^=gmul(Ainv[d][m], rhs[m]); dataBlocks[d][j]=acc; } }
+  } else {
+    return {ok:false, missing:dataMissing, tot, K, recovered:false};
+  }
+
+  const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
+  const ct=padded.slice(0,ctlen);
+  try{ const msg=await decryptMsg(ct, keyObj);
+    return {ok:true, message:msg, tot, K, recovered: dataMissing.length>0, R}; }
+  catch(e){ return {ok:false, tot, K,
+    error:"Entschlüsselung fehlgeschlagen — falsche Passphrase oder zu viele Datenfehler."}; }
+}
+
+/* ==================================================================== UI */
+const state={secret:"", pass:"", lang:"de", profile:"js8call", parity:2, plaus:30};
+let lastCover="";
+
+function levelFromPlaus(p){ return p<25?0 : p<50?1 : p<75?2 : 3; }
+const LEVEL_LABEL=["sehr glaubhaft","glaubhaft","knapp","sehr knapp"];
+const LEVEL_DESC=[
+  "Ein Satz trägt wenig Payload — der Text klingt am natürlichsten, wird aber am längsten.",
+  "Guter Kompromiss: klingt noch wie normales Geplauder, moderate Länge.",
+  "Mehr Bits pro Satz — der Text wird kürzer, klingt aber merklich gestelzter.",
+  "Maximale Dichte: kürzester Cover, klingt aber deutlich künstlich (viele Nebensätze)."
+];
+const $=id=>document.getElementById(id);
+
+let recomputeToken=0;
+async function recompute(){
+  const my=++recomputeToken;
+  const {secret,pass,lang,profile,parity,plaus}=state;
+  const level=levelFromPlaus(plaus);
+  const lv=GRAMMARS[lang][level];
+  $("plausLabel").textContent=LEVEL_LABEL[level];
+  $("densityNote").textContent=LEVEL_DESC[level];
+  $("bps").textContent=lv.bits;
+  drawTrace(lv.bits);
+
+  const cover=$("cover");
+  if(!secret.trim() || !pass){
+    cover.innerHTML='<span class="empty">'+(!pass?"Passphrase eingeben …":"Nachricht eintragen …")+'</span>';
+    for(const id of ["sentCount","chars"]) $(id).textContent="0";
+    $("blocks").textContent="0"; $("time").textContent="–"; lastCover=""; return;
+  }
+
+  let keyObj; try{ keyObj=await deriveKey(pass); }catch(e){ return; }
+  if(my!==recomputeToken) return;
+  let enc; try{ enc=await encode(secret, keyObj, lang, profile, level, parity); }
+  catch(e){ cover.innerHTML='<span class="empty">Fehler: '+e.message+'</span>'; return; }
+  if(my!==recomputeToken) return;
+
+  lastCover=coverToText(enc);
+
+  // Zählungen
+  let totalSent=0, totalChars=0;
+  for(const b of enc.blocks){ totalSent+=1+b.lines.length;
+    totalChars+=b.header.length+1; for(const l of b.lines) totalChars+=l.length+1; }
+
+  // Vorschau (erste 6 Blöcke), Rest zusammengefasst
+  const MAXSHOW=6; let html="", shown=0;
+  for(let i=0;i<enc.blocks.length && i<MAXSHOW;i++){
+    const b=enc.blocks[i];
+    html+='<span class="hdr">'+applyProfile(b.header,profile)+"</span>\n"
+        + b.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
+  }
+  if(enc.tot>shown) html+="\n… +"+(enc.tot-shown)+" weitere Blöcke — gesamt "+totalSent+" Sätze. Knopf „Vollständig kopieren“ liefert alles.";
+  cover.innerHTML=html;
+
+  $("sentCount").textContent=totalSent.toLocaleString("de");
+  $("chars").textContent=totalChars.toLocaleString("de");
+  $("blocks").textContent=enc.K+"+"+enc.R;
+  if(profile==="js8call"){ const secs=Math.round(totalChars/0.9);
+    const m=Math.floor(secs/60), s=secs%60; $("time").textContent=m>0?`${m}m ${s}s`:`${s}s`; }
+  else $("time").textContent="sofort";
+}
+
+function drawTrace(bits){
+  const svg=$("trace"); const W=600,H=34,mid=H/2;
+  const amp=3+bits*0.6, step=Math.max(6,34-bits); let d=`M0 ${mid}`;
+  for(let x=0;x<=W;x+=step){ const y=mid+(Math.sin(x/step)*amp)*(0.6+Math.random()*0.5); d+=` L${x} ${y.toFixed(1)}`; }
+  const col=bits<15?getCss("--amber"):bits<20?"#E9975A":getCss("--danger");
+  svg.innerHTML=`<path d="${d}" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.85"/>`;
+}
+function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+/* ---- Decode-UI ---- */
+async function runDecode(){
+  const box=$("rxResult"); const txt=$("rx").value;
+  if(!txt.trim()){ box.className="result"; box.innerHTML='<span class="empty">Bitte Cover-Text einfügen.</span>'; return; }
+  if(!state.pass){ box.className="result bad"; box.innerHTML='<span class="lbl">Fehler</span><span class="msg">Passphrase fehlt.</span>'; return; }
+  box.className="result"; box.innerHTML='<span class="empty">Entschlüssele …</span>';
+  let keyObj; try{ keyObj=await deriveKey(state.pass); }catch(e){ return; }
+  const r=await decode(txt, keyObj);
+  if(r.ok){
+    box.className="result ok";
+    const pill=r.recovered?'<span class="pill green">via Parity rekonstruiert</span>':'<span class="pill">sauber</span>';
+    box.innerHTML='<span class="lbl">Entschlüsselt '+pill+'</span><span class="msg">'+escapeHtml(r.message)+'</span>';
+  } else if(r.missing && r.missing.length){
+    box.className="result bad";
+    box.innerHTML='<span class="lbl">NACK — nachfordern</span><span class="msg">Fehlende Datenblöcke: '
+      +r.missing.join(", ")+' von '+r.tot+' (Parity reicht nicht).</span>';
+  } else {
+    box.className="result bad";
+    box.innerHTML='<span class="lbl">Fehler</span><span class="msg">'+escapeHtml(r.error||"Unbekannter Fehler")+'</span>';
+  }
+}
+function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+/* ---- Verdrahtung ---- */
+function seg(id,key){ const el=$(id);
+  el.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return;
+    [...el.children].forEach(c=>c.setAttribute("aria-pressed", c===b)); state[key]=b.dataset.v; recompute(); }); }
+seg("lang","lang"); seg("profile","profile");
+$("secret").addEventListener("input",e=>{ state.secret=e.target.value; recompute(); });
+$("pass").addEventListener("input",e=>{ state.pass=e.target.value; recompute(); });
+const plaus=$("plaus");
+plaus.addEventListener("input",e=>{ state.plaus=+e.target.value;
+  plaus.style.setProperty("--track",`linear-gradient(90deg, var(--amber) ${100-e.target.value}%, var(--danger))`);
+  recompute(); });
+function setParity(v){ state.parity=Math.max(0,Math.min(8,v)); $("parity").textContent=state.parity; recompute(); }
+$("pminus").addEventListener("click",()=>setParity(state.parity-1));
+$("pplus").addEventListener("click",()=>setParity(state.parity+1));
+$("copyBtn").addEventListener("click",()=>{ if(!lastCover) return;
+  navigator.clipboard?.writeText(lastCover);
+  const b=$("copyBtn"); b.textContent="Kopiert ✓"; setTimeout(()=>b.textContent="Vollständig kopieren",1200); });
+$("decodeBtn").addEventListener("click",runDecode);
+$("loopBtn").addEventListener("click",()=>{ $("rx").value=lastCover; runDecode(); });
+
+/* ---- Self-Test (window.selftest() in der Konsole) ---- */
+window.selftest=async function(){
+  const key=await deriveKey("test-passphrase");
+  const cases=[["de",1,2],["en",0,2],["de",3,1]];
+  for(const [lang,level,par] of cases){
+    const secret="Treffen Sonntag 18 Uhr am alten Hafen — "+lang+"/"+level;
+    const enc=await encode(secret,key,lang,"js8call",level,par);
+    const cover=coverToText(enc);
+    const r0=await decode(cover,key);
+    console.log(`[${lang} L${level} P${par}] sauber:`, r0.ok, "->", JSON.stringify(r0.message)===JSON.stringify(secret)?"MATCH":"MISMATCH: "+r0.message);
+    // R Blöcke entfernen -> via Parity ohne Nachfrage
+    const blk=cover.split("\n");
+    // Blöcke anhand Header gruppieren
+    const groups=[]; let cur=null;
+    for(const ln of blk){ if(/^DE /i.test(ln)){ if(cur)groups.push(cur); cur=[ln]; } else if(cur) cur.push(ln); }
+    if(cur)groups.push(cur);
+    const drop=new Set(); for(let d=0;d<par;d++) drop.add(d);       // erste par Blöcke weg
+    const lossy=groups.filter((_,gi)=>!drop.has(gi)).map(g=>g.join("\n")).join("\n");
+    const r1=await decode(lossy,key);
+    console.log(`   ${par} Blöcke weg -> ok:`, r1.ok, "via_parity:", r1.recovered, "msg:", r1.ok?(JSON.stringify(r1.message)===JSON.stringify(secret)?"MATCH":"MISMATCH"):r1.error);
+    const drop2=new Set(); for(let d=0;d<par+1;d++) drop2.add(d);   // par+1 weg -> NACK
+    const lossy2=groups.filter((_,gi)=>!drop2.has(gi)).map(g=>g.join("\n")).join("\n");
+    const r2=await decode(lossy2,key);
+    console.log(`   ${par+1} Blöcke weg -> ok:`, r2.ok, "missing:", r2.missing);
+  }
+  console.log("selftest fertig.");
+};
+
+/* ---- Start ---- */
+state.secret=$("secret").value; state.pass=$("pass").value;
+plaus.style.setProperty("--track","linear-gradient(90deg, var(--amber) 70%, var(--danger))");
+recompute();
+</script>
+</body>
+</html>

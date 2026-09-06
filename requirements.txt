@@ -1,0 +1,3 @@
+# Only the Python CLI engine (stegocomms.py) needs this.
+# The browser tool (cover_studio.html) has zero dependencies.
+cryptography>=42
