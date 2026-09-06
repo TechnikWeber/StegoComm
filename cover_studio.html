@@ -125,6 +125,8 @@
   .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:20px;
     background:#16324a;color:var(--blue);margin-left:8px}
   .pill.green{background:#0e2118;color:var(--green)}
+  .result .warn{display:block;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+    color:var(--amber);font-size:12.5px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -380,19 +382,22 @@ const POOLS = {
 const SLOT_POOL = {n1:"N1", b1:"N1", n2:"N2", b2:"N2",
                    a1:"A1", a2:"A2", a3:"A3", end:"END", adv2:"ADV2"};
 
-/* {slot:count} — count is the prefix length used and must be a power of two. */
+/* {slot:count} — count is the prefix length used and must be a power of two.
+   Templates contain NO punctuation at all: every character has to survive the
+   transport untouched, and a comma is exactly the kind of thing a radio or chat
+   path quietly drops or substitutes. Letters and single spaces only. */
 const TEMPLATES = {
   de:[
     "{n1:16} ist {a1:8} {end:8}",                              // 10 bits
     "{n1:32} ist {a1:16} {end:16}",                            // 13 bits
-    "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                    // 20 bits
-    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",     // 28 bits
+    "{n1:32} ist {a1:32} und {n2:32} {a3:32}",                 // 20 bits
+    "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",       // 28 bits
   ],
   en:[
     "{n1:16} is {a1:8} {end:8}",
     "{n1:32} is {a1:16} {end:16}",
-    "{n1:32} is {a1:32}, {n2:32} {a3:32}",
-    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",
+    "{n1:32} is {a1:32} and {n2:32} {a3:32}",
+    "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
   ],
 };
 
@@ -433,8 +438,19 @@ function renderSentence(lv, bits){
   let k=0;
   return lv.tpl.replace(/\{(\w+):(\d+)\}/g, ()=>words[k++]);
 }
+/* A client may prefix a line with a callsign ("KN4CRD: ") or a quote marker
+   ("> "). Cover sentences never contain ":" or ">", so stripping such a prefix
+   can never damage a genuine sentence. */
+const PREFIX_RE=/^[>\s]*(?:[a-z0-9/\-]{1,12}\s*[:>]\s*)?/;
+const TRAIL_RE=/[.!?,;:\s]+$/;
+/* Fold away what a transport typically changes: casing, a leading callsign or
+   quote marker, trailing punctuation, and runs of whitespace. Anything beyond
+   that is real damage and costs the block. */
+function cleanLine(line){
+  return line.trim().toLowerCase().replace(PREFIX_RE,"").replace(TRAIL_RE,"").replace(/\s+/g," ");
+}
 function parseSentence(lv, line){
-  const m=lv._re.exec(line.trim().replace(/[.\s]+$/,""));
+  const m=lv._re.exec(cleanLine(line));
   if(!m) return null;
   const bits=[];
   lv.slots.forEach((s,i)=>{ const v=s.opts.indexOf(m[i+1]);
@@ -611,8 +627,19 @@ function coverToText(enc, sections){
 }
 
 function normLines(t){
-  return t.split(/\r?\n/).filter(l=>l.trim().length)
-          .map(l=>l.trim().toLowerCase().replace(/[.\s]+$/,""));
+  return t.split(/\r?\n/).filter(l=>l.trim().length).map(cleanLine);
+}
+/* Characters the grammar never produces. Their presence means the text was
+   altered on the way — the most common reason decoding fails, and one that
+   otherwise looks exactly like a wrong passphrase. */
+function foreignChars(t){
+  const seen=new Set();
+  for(const l of t.split(/\r?\n/)){
+    if(!l.trim()) continue;
+    for(const c of l.trim().toLowerCase().replace(PREFIX_RE,""))
+      if(!(c===" " || (c>="a" && c<="z"))) seen.add(c);
+  }
+  return [...seen].sort();
 }
 
 /* Tries every (language, level) and slides a window over the text; the
@@ -644,8 +671,17 @@ async function findManifest(raw, lines){
 async function decode(coverText, keyObj){
   const raw=keyObj.raw;
   const lines=normLines(coverText);
+  const foreign=foreignChars(coverText);
+  const warning=foreign.length
+    ? "The text contains characters this tool never produces ("+foreign.join(" ")+") — "
+      +"something on the transport path altered it. Trailing punctuation is tolerated; "
+      +"anything else costs the affected block."
+    : null;
   const f=await findManifest(raw, lines);
-  if(!f) return {ok:false, error:"No valid manifest found — wrong passphrase, or this is not cover text."};
+  if(!f) return {ok:false, warning, error: foreign.length
+    ? "No valid manifest found. The text contains characters this tool never produces ("
+      +foreign.join(" ")+"), so the transport path most likely altered it — the passphrase may well be fine."
+    : "No valid manifest found — wrong passphrase, or this is not cover text."};
   const {man, lang, level, spans}=f;
   const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, tot=K+R;
   const lv=GRAMMARS[lang][level];
@@ -682,7 +718,7 @@ async function decode(coverText, keyObj){
     const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
     const Ainv=matInv(A,K);
     if(!Ainv) return {ok:false, missing:dataMissing, tot, K, recovered:false,
-                      error:"Reconstruction failed."};
+                      warning, error:"Reconstruction failed."};
     dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
     for(let j=0;j<CHUNK;j++){
       const rhs=surv.map(idx=>found[idx][j]);
@@ -691,14 +727,14 @@ async function decode(coverText, keyObj){
     }
     recovered=true;
   } else {
-    return {ok:false, missing:dataMissing, tot, K, recovered:false};
+    return {ok:false, missing:dataMissing, tot, K, recovered:false, warning};
   }
 
   const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
   const ct=padded.slice(0,ctlen);
   try{ const msg=await decryptMsg(ct, keyObj);
-    return {ok:true, message:msg, tot, K, recovered, R, lang, level}; }
-  catch(e){ return {ok:false, tot, K,
+    return {ok:true, message:msg, tot, K, recovered, R, lang, level, warning}; }
+  catch(e){ return {ok:false, tot, K, warning,
     error:"Decryption failed — wrong passphrase, or too many damaged blocks."}; }
 }
 
@@ -783,14 +819,15 @@ async function runDecode(){
   box.className="result"; box.innerHTML='<span class="empty">Decrypting …</span>';
   let keyObj; try{ keyObj=await deriveKey(state.pass); }catch(e){ return; }
   const r=await decode(txt, keyObj);
+  const warn=r.warning?'<span class="warn">⚠ '+escapeHtml(r.warning)+'</span>':"";
   if(r.ok){
     box.className="result ok";
     const pill=r.recovered?'<span class="pill green">recovered via parity</span>':'<span class="pill">clean</span>';
-    box.innerHTML='<span class="lbl">Decrypted '+pill+'</span><span class="msg">'+escapeHtml(r.message)+'</span>';
+    box.innerHTML='<span class="lbl">Decrypted '+pill+'</span><span class="msg">'+escapeHtml(r.message)+'</span>'+warn;
   } else if(r.missing && r.missing.length){
     box.className="result bad";
     box.innerHTML='<span class="lbl">NACK — request a resend</span><span class="msg">Missing data blocks: '
-      +r.missing.join(", ")+' of '+r.tot+' (parity is not enough).</span>';
+      +r.missing.join(", ")+' of '+r.tot+' (parity is not enough).</span>'+warn;
   } else {
     box.className="result bad";
     box.innerHTML='<span class="lbl">Error</span><span class="msg">'+escapeHtml(r.error||"Unknown error")+'</span>';
@@ -859,6 +896,19 @@ window.selftest=async function(){
     console.log("   1 sentence deleted -> ok:", r4.ok, "msg:", r4.message===secret?"MATCH":(r4.error||"NACK"));
     okAll&&=(r4.ok && r4.message===secret);
   }
+  // a mangled transport: callsign prefix, trailing punctuation, doubled spaces
+  const e6=await encode("Meet at six",key,"en","plain",2,2);
+  const mangled=coverToText(e6).split("\n").map(l=>"KN4CRD: "+l.replace(/ /g,"  ")+"!").join("\n");
+  const r6=await decode(mangled,key);
+  console.log("[mangled transport] ok:", r6.ok, "msg:", r6.message==="Meet at six"?"MATCH":"MISMATCH",
+              "warned:", !!r6.warning);
+  okAll&&=(r6.ok && r6.message==="Meet at six" && !!r6.warning);
+  // a clean cover must NOT be flagged
+  const r7=await decode(coverToText(e6),key);
+  console.log("[clean cover] ok:", r7.ok, "warned:", !!r7.warning,
+              "->", (r7.ok && !r7.warning)?"OK":"FAILURE");
+  okAll&&=(r7.ok && !r7.warning);
+
   const enc=await encode("secret",key,"de","js8call",1,2);
   const r5=await decode(coverToText(enc), await deriveKey("wrong"));
   console.log("[wrong passphrase] ok:", r5.ok, "->", r5.ok?"FAILURE":"correctly rejected");

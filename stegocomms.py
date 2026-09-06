@@ -241,18 +241,21 @@ SLOT_POOL = {"n1": "N1", "b1": "N1", "n2": "N2", "b2": "N2",
              "a1": "A1", "a2": "A2", "a3": "A3", "end": "END", "adv2": "ADV2"}
 
 # {slot:count} -- count is the prefix length used and must be a power of two.
+# Templates contain NO punctuation at all: every character has to survive the
+# transport untouched, and a comma is exactly the kind of thing a radio or chat
+# path quietly drops or substitutes.  Letters and single spaces only.
 TEMPLATES = {
     "de": [
         "{n1:16} ist {a1:8} {end:8}",                                   # 10 bits
         "{n1:32} ist {a1:16} {end:16}",                                 # 13 bits
-        "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                         # 20 bits
-        "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",          # 28 bits
+        "{n1:32} ist {a1:32} und {n2:32} {a3:32}",                      # 20 bits
+        "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",            # 28 bits
     ],
     "en": [
         "{n1:16} is {a1:8} {end:8}",
         "{n1:32} is {a1:16} {end:16}",
-        "{n1:32} is {a1:32}, {n2:32} {a3:32}",
-        "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",
+        "{n1:32} is {a1:32} and {n2:32} {a3:32}",
+        "{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
     ],
 }
 
@@ -301,9 +304,21 @@ def render_sentence(lv, bits):
     it = iter(words)
     return _SLOT_RE.sub(lambda m: next(it), lv["tpl"])
 
+# A client may prefix a line with a callsign ("KN4CRD: ") or a quote marker
+# ("> ").  Cover sentences never contain ":" or ">", so stripping such a prefix
+# can never damage a genuine sentence.
+_PREFIX_RE = re.compile(r"^[>\s]*(?:[a-z0-9/\-]{1,12}\s*[:>]\s*)?")
+_TRAIL_RE = re.compile(r"[.!?,;:\s]+$")
+
+def clean_line(line):
+    """Fold away what a transport typically changes: casing, a leading callsign
+    or quote marker, trailing punctuation, and runs of whitespace.  Anything
+    beyond that is real damage and costs the block."""
+    s = _PREFIX_RE.sub("", line.strip().lower())
+    return re.sub(r"\s+", " ", _TRAIL_RE.sub("", s))
+
 def parse_sentence(lv, line):
-    s = re.sub(r"[.\s]+$", "", line.strip())
-    m = lv["re"].match(s)
+    m = lv["re"].match(clean_line(line))
     if not m:
         return None
     bits = []
@@ -466,8 +481,19 @@ def cover_to_text(enc, sections=None):
     return "\n".join(parts)
 
 def _norm_lines(cover_text):
-    return [re.sub(r"[.\s]+$", "", l.strip().lower())
-            for l in cover_text.splitlines() if l.strip()]
+    return [clean_line(l) for l in cover_text.splitlines() if l.strip()]
+
+def _foreign_chars(cover_text):
+    """Characters the grammar never produces.  Their presence means the text was
+    altered on the way -- the most common reason decoding fails, and one that
+    otherwise looks exactly like a wrong passphrase."""
+    seen = set()
+    for l in cover_text.splitlines():
+        if not l.strip():
+            continue
+        s = _PREFIX_RE.sub("", l.strip().lower())
+        seen.update(c for c in s if not (c == " " or ("a" <= c <= "z")))
+    return sorted(seen)
 
 def _find_manifest(raw, lines):
     """Tries every (language, level) and slides a window over the text; the
@@ -504,8 +530,21 @@ def _find_manifest(raw, lines):
 def decode(cover_text, key):
     raw = key["raw"]
     lines = _norm_lines(cover_text)
+    foreign = _foreign_chars(cover_text)
+    warning = None
+    if foreign:
+        warning = ("The text contains characters this tool never produces ("
+                   + " ".join(foreign) + ") -- something on the transport path "
+                   "altered it. Trailing punctuation is tolerated; anything else "
+                   "costs the affected block.")
     man, lang, level, spans = _find_manifest(raw, lines)
     if man is None:
+        if foreign:
+            return {"ok": False, "warning": warning,
+                    "error": "No valid manifest found. The text contains characters "
+                             "this tool never produces (" + " ".join(foreign) + "), so "
+                             "the transport path most likely altered it -- the "
+                             "passphrase may well be fine."}
         return {"ok": False, "error": "No valid manifest found -- wrong passphrase, "
                                       "or this is not cover text."}
     K, R, ctlen, bnonce = man["K"], man["R"], man["ctlen"], man["bnonce"]
@@ -568,15 +607,16 @@ def decode(cover_text, key):
         recovered = True
     else:
         return {"ok": False, "missing": data_missing, "tot": tot, "K": K,
-                "recovered": False}
+                "recovered": False, "warning": warning}
 
     ct = b"".join(data_blocks)[:ctlen]
     try:
         msg = decrypt_msg(ct, key)
         return {"ok": True, "message": msg, "tot": tot, "K": K,
-                "recovered": recovered, "R": R, "lang": lang, "level": level}
+                "recovered": recovered, "R": R, "lang": lang, "level": level,
+                "warning": warning}
     except Exception:
-        return {"ok": False, "tot": tot, "K": K,
+        return {"ok": False, "tot": tot, "K": K, "warning": warning,
                 "error": "Decryption failed -- wrong passphrase, or too many "
                          "damaged blocks."}
 
@@ -633,6 +673,22 @@ def _selftest():
               f"msg: {'MATCH' if r4.get('message') == secret else r4.get('error') or 'NACK'}")
         ok_all &= bool(r4.get("ok") and r4.get("message") == secret)
 
+    # a mangled transport: callsign prefix, trailing punctuation, doubled spaces
+    enc = encode("Meet at six", key, lang="en", level=2, parity=2)
+    mangled = "\n".join("KN4CRD: " + l.replace(" ", "  ") + "!"
+                        for l in cover_to_text(enc).split("\n"))
+    r6 = decode(mangled, key)
+    print(f"[mangled transport] ok: {r6.get('ok')} "
+          f"msg: {'MATCH' if r6.get('message') == 'Meet at six' else 'MISMATCH'} "
+          f"warned: {bool(r6.get('warning'))}")
+    ok_all &= bool(r6.get("ok") and r6.get("message") == "Meet at six" and r6.get("warning"))
+
+    # a clean cover must NOT be flagged
+    r7 = decode(cover_to_text(enc), key)
+    print(f"[clean cover] ok: {r7.get('ok')} warned: {bool(r7.get('warning'))} "
+          f"-> {'OK' if r7.get('ok') and not r7.get('warning') else 'FAILURE'}")
+    ok_all &= bool(r7.get("ok") and not r7.get("warning"))
+
     # a wrong passphrase must not get through
     enc = encode("secret", key, lang="de", level=1, parity=2)
     r5 = decode(cover_to_text(enc), derive_key("wrong"))
@@ -673,6 +729,8 @@ def _main():
         print(cover_to_text(enc))
     elif args.cmd == "decode":
         res = decode(sys.stdin.read(), key)
+        if res.get("warning"):
+            print("WARNING: " + res["warning"], file=sys.stderr)
         if res.get("ok"):
             tag = " [recovered via parity]" if res.get("recovered") else ""
             print(res["message"] + tag)

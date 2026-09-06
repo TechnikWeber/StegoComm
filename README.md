@@ -17,6 +17,89 @@ A message encoded in the browser can be decoded by the Python CLI and vice versa
 
 ---
 
+## How it works / So funktioniert es
+
+Five steps down, the same five back up. Only the last one is unusual — the
+first four are ordinary, well-understood cryptography.
+
+Fünf Schritte hin, dieselben fünf zurück. Nur der letzte ist ungewöhnlich — die
+ersten vier sind gewöhnliche, gut verstandene Kryptographie.
+
+```
+        WHAT YOU TYPE / WAS DU EINGIBST
+        "Meet Sunday 6pm at the old harbour"
+                     │
+                     │   1.  SQUEEZE / KLEINER MACHEN
+                     │       deflate — fewer bytes to hide
+                     ▼
+        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+                     │
+                     │   2.  LOCK / ABSCHLIESSEN
+                     │       AES-256-GCM, key from your passphrase
+                     │       (PBKDF2, 200 000 rounds)
+                     ▼
+        ████████████████████████    ← unreadable noise / unlesbares Rauschen
+                     │                 THIS is what protects you
+                     │
+                     │   3.  SLICE / ZERTEILEN
+                     │       into 8-byte blocks
+                     ▼
+        ██ ██ ██ ██ ██ ██
+                     │
+                     │   4.  INSURE / ABSICHERN
+                     │       add parity blocks (Reed-Solomon)
+                     ▼
+        ██ ██ ██ ██ ██ ██ ▓▓ ▓▓     ▓ = parity: any 2 lost blocks
+                     │                  can be rebuilt without a resend
+                     │
+                     │   5.  DISGUISE / TARNEN
+                     │       each block becomes sentences —
+                     ▼       the CHOICE OF WORDS carries the bits
+        ┌──────────────────────────────────┐
+        │  the market is quiet today       │   ← this is what you send
+        │  the roof is fine inside         │      das verschickst du
+        │  the antenna is steady here      │
+        │  ...                             │
+        └──────────────────────────────────┘
+
+        The receiver runs the same five steps backwards.
+        Der Empfänger geht dieselben fünf Schritte rückwärts.
+```
+
+**Why the choice of words is the data.** Each sentence follows one pattern, and
+every slot in it has a fixed list of possible words. With 32 nouns to choose
+from, *which* noun appears is worth 5 bits. Pick a noun, an adjective and an
+ending, and one short sentence has carried 10 to 28 bits. The receiver looks up
+each word's position in the same lists and gets the bits straight back.
+
+**Warum die Wortwahl die Daten sind.** Jeder Satz folgt einer Schablone, und jede
+Lücke darin hat eine feste Liste möglicher Wörter. Bei 32 Nomen zur Auswahl ist
+es 5 Bit wert, *welches* Nomen dasteht. Nomen, Adjektiv und Endung zusammen — und
+ein kurzer Satz hat 10 bis 28 Bit transportiert. Der Empfänger schlägt jedes Wort
+in denselben Listen nach und hat die Bits zurück.
+
+**What each layer is for / Wofür jede Schicht da ist**
+
+| Layer / Schicht | Solves / Löst |
+|---|---|
+| deflate | fewer bytes to hide / weniger Bytes zu verstecken |
+| AES-256-GCM | nobody can read it, and tampering is detected / niemand kann es lesen, Manipulation fällt auf |
+| Reed-Solomon | lost blocks rebuilt without asking for a resend / verlorene Blöcke ohne Nachforderung rekonstruiert |
+| the grammar / die Grammatik | it does not look like a message / es sieht nicht nach Nachricht aus |
+| random padding | filler bits do not repeat a tell-tale pattern / Füllbits wiederholen kein verräterisches Muster |
+
+**The important bit:** your security comes from step 2, not step 5. Even someone
+who knows exactly how this tool works and unpicks the sentences perfectly ends up
+with the noise from step 2 — and without your passphrase that is where they stop.
+The disguise buys you that nobody looks in the first place.
+
+**Das Wichtigste:** Die Sicherheit kommt aus Schritt 2, nicht aus Schritt 5.
+Selbst wer genau weiß, wie dieses Werkzeug arbeitet, und die Sätze sauber
+zurückrechnet, landet beim Rauschen aus Schritt 2 — und ohne deine Passphrase ist
+dort Schluss. Die Tarnung sorgt dafür, dass überhaupt niemand hinsieht.
+
+---
+
 ## English
 
 ### What it does
@@ -48,7 +131,14 @@ The result looks like harmless chatter (or a ham-radio JS8Call exchange) but car
 
 ### The believability slider
 
-The browser tool has a **Glaubhaftigkeit** (believability) slider, mirrored by the CLI's `--level 0..3`:
+**"Level" is simply the position of the believability slider** — one of four
+settings, `--level 0` to `--level 3` on the command line. It decides how hard
+each sentence works: a low level uses only the most everyday words and needs many
+sentences; a high level draws on much wider word lists, so one sentence carries
+more, and fewer sentences are needed. Nothing else changes — same encryption,
+same message. You are trading how natural the text reads against how long it is.
+
+The receiver does not need to be told which level you used.
 
 Higher levels do **not** bolt extra clauses onto the sentence — that was the v3
 design, and it backfired: a tacked-on clause bought ~5 bits but cost ~20
@@ -61,12 +151,12 @@ gets longer — and the character count finally falls with the level.
 
 Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, `plain`, 2 parity blocks):
 
-| Level | Feel | Bits/sentence | Sentences | Characters | Bits/char |
+| Level | Feel | Bits/sentence | Sentences | Characters | Example |
 |---|---|---|---|---|---|
-| 0 | very believable | 10 | 104 | 2649 | 0.39 |
-| 1 | believable (default) | 13 | 89 | 2272 | 0.51 |
-| 2 | terse | 20 | 52 | 1934 | 0.54 |
-| 3 | very terse | 28 | 39 | 1507 | 0.72 |
+| 0 | very believable | 10 | 104 | 2657 | `das band ist stetig hier` |
+| 1 | believable (default) | 13 | 89 | 2267 | `die antenne ist mild vorn` |
+| 2 | terse | 20 | 52 | 2104 | `das radio ist stetig und der zaun fertig` |
+| 3 | very terse | 28 | 39 | 1439 | `kaffee hart turm langsam gleich warm` |
 
 Note what the slider actually buys you: on JS8Call, airtime tracks *characters*,
 so the level genuinely halves transmission time. In a chat transport it mostly
@@ -177,7 +267,15 @@ Das Ergebnis sieht aus wie harmloses Geplauder (oder ein JS8Call-Funkspruch), tr
 
 ### Der Glaubhaftigkeits-Regler
 
-Das Browser-Tool hat einen **Glaubhaftigkeits**-Regler, gespiegelt durch `--level 0..3` in der CLI:
+**„Stufe" ist einfach die Stellung des Glaubhaftigkeits-Reglers** — eine von
+vier, auf der Kommandozeile `--level 0` bis `--level 3`. Sie entscheidet, wie
+viel jeder Satz zu tragen hat: eine niedrige Stufe nutzt nur die alltäglichsten
+Wörter und braucht dafür viele Sätze; eine hohe Stufe greift auf viel breitere
+Wortlisten zu, ein Satz trägt also mehr, und es werden weniger Sätze gebraucht.
+Sonst ändert sich nichts — dieselbe Verschlüsselung, dieselbe Nachricht. Du
+tauschst nur, wie natürlich der Text klingt, gegen seine Länge.
+
+Der Empfänger muss nicht wissen, welche Stufe du benutzt hast.
 
 Höhere Stufen hängen **keine** Nebensätze mehr an — das war der v3-Entwurf, und
 er ging nach hinten los: ein angehängter Nebensatz brachte ~5 Bit, kostete aber
@@ -190,12 +288,12 @@ Die Glaubhaftigkeit sinkt jetzt durch ungewöhnliche Wortwahl, nicht durch Läng
 
 Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, `plain`, 2 Parity-Blöcke):
 
-| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Bit/Zeichen |
+| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Beispielsatz |
 |---|---|---|---|---|---|
-| 0 | sehr glaubhaft | 10 | 104 | 2649 | 0,39 |
-| 1 | glaubhaft (Standard) | 13 | 89 | 2272 | 0,51 |
-| 2 | knapp | 20 | 52 | 1934 | 0,54 |
-| 3 | sehr knapp | 28 | 39 | 1507 | 0,72 |
+| 0 | sehr glaubhaft | 10 | 104 | 2657 | `das band ist stetig hier` |
+| 1 | glaubhaft (Standard) | 13 | 89 | 2267 | `die antenne ist mild vorn` |
+| 2 | knapp | 20 | 52 | 2104 | `das radio ist stetig und der zaun fertig` |
+| 3 | sehr knapp | 28 | 39 | 1439 | `kaffee hart turm langsam gleich warm` |
 
 Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stufe
 halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
@@ -285,16 +383,23 @@ lines it cannot parse.
 2. Copy the whole cover.
 3. Paste it into JS8Call's send box and transmit. Long covers exceed one frame;
    JS8Call splits them, or you send them in chunks.
-4. The receiver copies the received text out of JS8Call — their own and your
-   callsign prefixes included, those do no harm — and pastes it into `decode`.
+4. The receiver copies the received text out of JS8Call and pastes it into
+   `decode`. Callsign prefixes JS8Call shows on each line are stripped
+   automatically.
 
-Two things to check on your own installation before relying on this:
+The cover contains **letters and single spaces only** — no punctuation, no
+digits, at any level. That is deliberate: punctuation is exactly what a radio or
+chat path quietly drops or substitutes.
 
-- **Punctuation.** Levels 2 and 3 put a comma inside each sentence. Confirm that
-  a comma survives your JS8Call setup intact; if it is dropped or substituted,
-  stay on level 0 or 1, which use no punctuation at all.
-- **Line breaks.** The decoder needs one sentence per line. If your transport
-  reflows or joins lines, the sentences run together and nothing decodes.
+The decoder also folds away the damage a transport usually does: casing, a
+leading callsign or quote marker (`KN4CRD: `, `> `), trailing punctuation, and
+doubled spaces. So pasting JS8Call's received text with its callsign prefixes
+still works. If it finds any character the grammar never produces, it says so
+instead of blaming your passphrase.
+
+One thing it cannot fix: **line breaks**. The decoder needs one sentence per
+line. If your transport reflows or joins lines, the sentences run together and
+nothing decodes.
 
 **Nur die Cover-Sätze einfügen, sonst nichts.** JS8Call sendet dein Rufzeichen
 selbst — du tippst dort Nachrichtentext, keinen Header. Also kein `DE <call>`
@@ -304,15 +409,29 @@ dekorative Rufzeichen-Zeilen ausgegeben (`DE W1ABC MSG 3/14`); genau deswegen
 sind sie entfernt worden. Ein altes Cover mit solchen Zeilen lässt sich weiterhin
 dekodieren — der Decoder überspringt, was er nicht parsen kann.
 
-Vorher prüfen: ob ein **Komma** deine JS8Call-Strecke unbeschadet übersteht (nur
-Stufe 2 und 3 nutzen eins — Stufe 0 und 1 kommen ohne Satzzeichen aus), und ob
-**Zeilenumbrüche** erhalten bleiben; der Decoder braucht einen Satz pro Zeile.
+Das Cover enthält **nur Buchstaben und einfache Leerzeichen** — keine
+Satzzeichen, keine Ziffern, auf keiner Stufe. Das ist Absicht: Satzzeichen sind
+genau das, was eine Funk- oder Chat-Strecke stillschweigend verschluckt oder
+ersetzt.
+
+Der Decoder bügelt zusätzlich aus, was ein Transportweg üblicherweise anrichtet:
+Groß-/Kleinschreibung, ein vorangestelltes Rufzeichen oder Zitatzeichen
+(`KN4CRD: `, `> `), Satzzeichen am Zeilenende und doppelte Leerzeichen. Den
+empfangenen JS8Call-Text mitsamt Rufzeichen-Präfixen einzufügen funktioniert also.
+Findet er ein Zeichen, das die Grammatik nie erzeugt, sagt er das — statt deiner
+Passphrase die Schuld zu geben.
+
+Was er nicht reparieren kann: **Zeilenumbrüche**. Der Decoder braucht einen Satz
+pro Zeile. Zieht dein Transportweg Zeilen zusammen, laufen die Sätze ineinander
+und nichts geht mehr.
 
 ---
 
 ## Wire format v4 / Wire-Format v4
 
-The current wire format is **v4**. It differs from v3 in three ways: the plaintext
+The current wire format is **v4**. Its grammar contains no punctuation at all,
+and the decoder normalises away casing, callsign/quote prefixes, trailing
+punctuation and doubled spaces before parsing. It differs from v3 in three ways: the plaintext
 per-block header is gone (framing now lives in the covert channel plus a masked
 manifest), the believability levels trade density for *word choice* instead of
 sentence length, and German nouns carry their correct article (`der Kaffee`
@@ -340,6 +459,13 @@ entschlüsseln** — das Format ist ohnehin inkompatibel.
   Alle Sätze einer Stufe folgen einer Schablone, ein langer Cover wirkt daher
   strukturell repetitiv — das galt für v3 genauso und ist eine Grenze der
   Glaubhaftigkeit, kein Fehler.
+- The cover uses letters and single spaces only. The decoder tolerates the usual
+  transport damage (casing, callsign or quote prefixes, trailing punctuation,
+  doubled spaces) and warns when it sees characters the grammar never produces,
+  but it needs one sentence per line — a transport that reflows lines breaks it.
+  Das Cover nutzt nur Buchstaben und einfache Leerzeichen. Der Decoder verkraftet
+  die üblichen Transportschäden und warnt bei Fremdzeichen, braucht aber einen
+  Satz pro Zeile — ein Transportweg, der Zeilen umbricht, macht es kaputt.
 - Block detection rests on an 8-bit CRC, so a random sentence run has a ~1/256
   chance of being mistaken for a block. A false hit corrupts the payload and the
   GCM tag then rejects the message rather than returning wrong plaintext.
