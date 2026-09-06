@@ -63,6 +63,31 @@ def check_invariants():
     return problems
 
 
+def check_literals():
+    """The fixed words in a template -- the verbs, "und"/"and", the articles --
+    must not appear in any word list, or a sentence could be split two ways."""
+    problems = []
+    for lang in ("de", "en"):
+        pools = dict(sc.SHARED_POOLS[lang])
+        pools["N"] = [sc.bare_noun(w) for topic in sc.TOPIC_ORDER
+                      for w in sc.TOPIC_WORDS[lang][topic]["N"]]
+        where = {}
+        for key, words in pools.items():
+            for w in words:
+                where.setdefault(w, key)
+        literals = set()
+        for variants in sc.TEMPLATES[lang]:
+            for tpl in variants:
+                for chunk in sc._SLOT_RE.split(tpl):
+                    for word in chunk.split():
+                        if not word.startswith("{") and not word.isdigit():
+                            literals.add(word)
+        for word in sorted(literals):
+            if word in where:
+                problems.append(f"{lang}: template word {word!r} is also in {where[word]}")
+    return problems
+
+
 def browser_pools():
     """Ask the browser engine for its word lists, as JSON."""
     script = (
@@ -103,7 +128,7 @@ def check_implementations_agree():
 
 
 def main():
-    problems = check_invariants()
+    problems = check_invariants() + check_literals()
     print(f"  {'ok  ' if not problems else 'FAIL'} word-list invariants"
           + ("" if not problems else ":"))
     for p in problems:
@@ -116,8 +141,10 @@ def main():
         print("       " + p)
 
     total = len(sc.TOPIC_ORDER) * NOUNS_PER_TOPIC
+    shapes = [len(v) for v in sc.TEMPLATES["de"]]
     print(f"       {total} nouns per language across {len(sc.TOPIC_ORDER)} topics, "
           f"plus {sum(SIZES.values())} shared words")
+    print(f"       sentence shapes per level: {shapes}")
     return 1 if (problems or agree) else 0
 
 

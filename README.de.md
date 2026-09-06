@@ -182,10 +182,10 @@ Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 
 | Stufe | Wirkung | Bit/Satz | Wörter aus | Sätze | Zeichen | Beispielsatz |
 |---|---|---|---|---|---|---|
-| 0 | sehr glaubhaft | 13 | 16 Nomen, 8+8 andere | 89 | 2461 | `gleich wirkt der apfel fein` |
-| 1 | glaubhaft (Standard) | 16 | 32 Nomen, 16+16 | 65 | 1814 | `hier ist der topf frisch` |
-| 2 | knapp | 22 | 64 Nomen, 32+16+16 | 52 | 1656 | `jetzt wirkt hochbeet gut hell` |
-| 3 | sehr knapp | 25 | 64 Nomen, 64+32+32 | 50 | 1383 | `gestern trueb ausfahrt voll` |
+| 0 | sehr glaubhaft | 14 | 16 Nomen, 8+8 andere | 78 | 2186 | `jetzt war die karte laut` |
+| 1 | glaubhaft (Standard) | 17 | 32 Nomen, 16+16 | 65 | 1920 | `oben blieb der drucker mau` |
+| 2 | knapp | 23 | 64 Nomen, 32+16+16 | 52 | 1630 | `abends war regen hart hell` |
+| 3 | sehr knapp | 26 | 64 Nomen, 64+32+32 | 50 | 1422 | `heil diesig prognose wiederholt` |
 
 Die Natürlichkeit fällt hörbar Stufe für Stufe: 0 und 1 sind vollständige Sätze
 mit Artikel und Verb, Stufe 2 lässt den Artikel weg, Stufe 3 zusätzlich das Verb.
@@ -207,11 +207,13 @@ Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stu
 halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
 Nachrichten zum Einfügen.
 
-Jede Stufe bietet **acht Satzformen** mit identischer Wortzahl und Bitbreite —
-vier Verben (`ist/war/bleibt/wirkt`) mal zwei Wortstellungen für die Stufen 0 bis
-2, acht Anordnungen der vier Wörter für Stufe 3. Welche benutzt wird, ist selbst
-Teil der Nutzlast, die Vielfalt ist also gratis: sie bringt drei Bit pro Satz
-zusätzlich, statt etwas zu kosten.
+Jede Stufe bietet **sechzehn Satzformen** mit identischer Wortzahl und Bitbreite
+— acht Kopulaverben (`ist/war/bleibt/blieb/wirkt/wirkte/scheint/schien`, die
+Zeitform wechselt wie in echtem Geplauder) mal zwei Wortstellungen für die Stufen
+0 bis 2, und sechzehn der 24 Anordnungen der vier Wörter für Stufe 3. Welche
+benutzt wird, ist selbst Teil der Nutzlast, die Vielfalt ist also gratis: sie
+bringt vier Bit pro Satz zusätzlich, statt etwas zu kosten — deshalb braucht
+Stufe 0 jetzt sechs statt sieben Sätze pro Block.
 
 Die höheren Stufen greifen zusätzlich tiefer in die Wortlisten. Jedes Thema hat
 **64 Nomen**, sortiert danach, wie alltäglich das Wort ist, dazu kommen 64
@@ -367,7 +369,7 @@ oder verstümmelter Satz kostet damit einen Block, nicht den Rest der Nachricht.
   würden den Rahmen pro Block drücken, wurden aber gemessen und verworfen: die
   Parity-Blöcke wachsen mit der Blockgröße mit, 8 Byte ergaben bei jeder
   getesteten Nachrichtenlänge den kürzesten Cover.
-- Mit acht Satzformen und sechs Vokabularen wiederholt ein langer Cover kein
+- Mit sechzehn Satzformen und sechs Vokabularen wiederholt ein langer Cover kein
   einzelnes Muster mehr, aber die Sätze sind weiterhin schablonenerzeugt und
   paaren Wörter zufällig, es kommen also schiefe Kombinationen vor. Es liest sich
   wie Geplauder, nicht wie Prosa.

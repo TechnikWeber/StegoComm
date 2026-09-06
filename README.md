@@ -177,10 +177,10 @@ Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, 2 parity blocks):
 
 | Level | Feel | Bits/sentence | Words drawn from | Sentences | Characters | Example |
 |---|---|---|---|---|---|---|
-| 0 | very believable | 13 | 16 nouns, 8+8 others | 89 | 2461 | `gleich wirkt der apfel fein` |
-| 1 | believable (default) | 16 | 32 nouns, 16+16 | 65 | 1814 | `hier ist der topf frisch` |
-| 2 | terse | 22 | 64 nouns, 32+16+16 | 52 | 1656 | `jetzt wirkt hochbeet gut hell` |
-| 3 | very terse | 25 | 64 nouns, 64+32+32 | 50 | 1383 | `gestern trueb ausfahrt voll` |
+| 0 | very believable | 14 | 16 nouns, 8+8 others | 78 | 2186 | `jetzt war die karte laut` |
+| 1 | believable (default) | 17 | 32 nouns, 16+16 | 65 | 1920 | `oben blieb der drucker mau` |
+| 2 | terse | 23 | 64 nouns, 32+16+16 | 52 | 1630 | `abends war regen hart hell` |
+| 3 | very terse | 26 | 64 nouns, 64+32+32 | 50 | 1422 | `heil diesig prognose wiederholt` |
 
 Naturalness falls step by step in a way you can hear: levels 0 and 1 are complete
 sentences with an article and a verb, level 2 drops the article, level 3 drops
@@ -202,11 +202,13 @@ Note what the slider actually buys you: on JS8Call, airtime tracks *characters*,
 so the level genuinely halves transmission time. In a chat transport it mostly
 buys you fewer messages to paste.
 
-Each level offers **eight sentence shapes** of identical word count and bit
-width — four verbs (`is/was/stays/seems`) times two word orders for levels 0 to 2,
-eight orderings of the four words for level 3. Which one is used is itself part
-of the payload, so the variety is free: it adds three bits per sentence rather
-than costing anything.
+Each level offers **sixteen sentence shapes** of identical word count and bit
+width — eight copulas (`is/was/stays/stayed/seems/seemed/looks/looked`, mixing
+tense the way real chatter does) times two word orders for levels 0 to 2, and
+sixteen of the 24 orderings of the four words for level 3. Which one is used is
+itself part of the payload, so the variety is free: it adds four bits per
+sentence rather than costing anything, which is why level 0 needs six sentences
+per block rather than seven.
 
 The higher levels also reach deeper into the word lists. Each topic holds **64
 nouns**, ordered by how everyday the word is, and the shared lists hold 64
@@ -358,7 +360,7 @@ costs one block, not the rest of the message.
   per-block framing, but they were measured and rejected: the parity blocks grow
   with the block size, so 8 bytes turned out to be the smallest cover at every
   message length tried.
-- With eight shapes and six vocabularies a long cover no longer repeats one
+- With sixteen shapes and six vocabularies a long cover no longer repeats one
   pattern, but the sentences are still template-generated and pair words at
   random, so odd combinations occur. It reads as chatter, not as prose.
 - Block detection rests on an 8-bit CRC, so a random sentence run has a ~1/256
