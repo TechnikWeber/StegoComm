@@ -126,8 +126,8 @@ kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind
 
 Die Sätze werden aus einem von sechs Alltagsvokabularen gebaut — **Wetter &
 Himmel, Haushalt & Küche, Garten & draußen, Arbeit & Erledigungen, Unterwegs &
-Straße, Funk & Technik** — und pro Satz wird ein Thema gezogen, damit ein Cover
-zwischen Themen wandert wie echtes Geplauder. Alles außer *Funk & Technik* ist
+Straße, Funk & Technik**, je 64 Nomen — und pro Satz wird ein Thema gezogen,
+damit ein Cover zwischen Themen wandert wie echtes Geplauder. Alles außer *Funk & Technik* ist
 standardmäßig an; der Knopf **AFU mode** schaltet auf *Funk & Technik* allein um,
 und einzeln anhakbar bleibt weiterhin alles.
 
@@ -180,12 +180,12 @@ Der Empfänger muss nicht wissen, welche Stufe du benutzt hast.
 
 Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 
-| Stufe | Wirkung | Bit/Satz | Formen | Sätze | Zeichen | Beispielsatz |
+| Stufe | Wirkung | Bit/Satz | Wörter aus | Sätze | Zeichen | Beispielsatz |
 |---|---|---|---|---|---|---|
-| 0 | sehr glaubhaft | 13 | 8 | 89 | 2416 | `die frist ist stetig heute` |
-| 1 | glaubhaft (Standard) | 16 | 8 | 65 | 1842 | `nachts ist das licht flach` |
-| 2 | knapp | 20 | 8 | 52 | 1582 | `draussen bleibt topf fest schwuel` |
-| 3 | sehr knapp | 21 | 8 | 52 | 1325 | `jetzt stuhl klamm hoch` |
+| 0 | sehr glaubhaft | 13 | 16 Nomen, 8+8 andere | 89 | 2461 | `gleich wirkt der apfel fein` |
+| 1 | glaubhaft (Standard) | 16 | 32 Nomen, 16+16 | 65 | 1814 | `hier ist der topf frisch` |
+| 2 | knapp | 22 | 64 Nomen, 32+16+16 | 52 | 1656 | `jetzt wirkt hochbeet gut hell` |
+| 3 | sehr knapp | 25 | 64 Nomen, 64+32+32 | 50 | 1383 | `gestern trueb ausfahrt voll` |
 
 Die Natürlichkeit fällt hörbar Stufe für Stufe: 0 und 1 sind vollständige Sätze
 mit Artikel und Verb, Stufe 2 lässt den Artikel weg, Stufe 3 zusätzlich das Verb.
@@ -212,6 +212,13 @@ vier Verben (`ist/war/bleibt/wirkt`) mal zwei Wortstellungen für die Stufen 0 b
 2, acht Anordnungen der vier Wörter für Stufe 3. Welche benutzt wird, ist selbst
 Teil der Nutzlast, die Vielfalt ist also gratis: sie bringt drei Bit pro Satz
 zusätzlich, statt etwas zu kosten.
+
+Die höheren Stufen greifen zusätzlich tiefer in die Wortlisten. Jedes Thema hat
+**64 Nomen**, sortiert danach, wie alltäglich das Wort ist, dazu kommen 64
+Adjektive und je 32 Wetterwörter, Endungen und Zeitadverbien. Stufe 0 sieht nur
+die ersten 16 Nomen und die 8 gebräuchlichsten Adjektive, Stufe 3 alles — auch
+deshalb klingt sie schräg, und deshalb trägt sie fast doppelt so viele Bit pro
+Zeichen.
 
 Weder Sprache noch Stufe stehen irgendwo im Cover — der Decoder probiert schlicht
 alle 8 Kombinationen durch, die CRC16 des Manifests entscheidet.
@@ -383,8 +390,12 @@ durch. Das läuft bei jedem Push über GitHub Actions, lokal mit:
 Geprüft werden der Selbsttest jeder Engine (Round-Trip, Parity-Rekonstruktion,
 NACK, Manifest-Redundanz, Resynchronisation, Transportschäden,
 Grammatik-Konsistenz), danach kodiert jede Implementierung und die andere
-dekodiert — über alle Stufen, Sprachen und Profile — und zuletzt, dass die
-Passphrasen-Regel auf beiden Seiten identisch urteilt. `tests/engine.mjs` lädt
+dekodiert — über alle Stufen, Sprachen und Profile, jeder Fall mit einer
+*anderen* Themenwahl, damit ein ins Bit-Layout durchgeschlagenes Thema den Build
+umwirft. Dann die Wortlisten: Nomen über alle Themen eindeutig, Slots die sich
+eine Position teilen können nie ein Wort gemeinsam, und beide Implementierungen
+byte-gleich. Zuletzt, dass die Passphrasen-Regel auf beiden Seiten identisch
+urteilt. `tests/engine.mjs` lädt
 die Browser-Engine direkt aus `cover_studio.html`, getestet wird also der
 ausgelieferte Code.
 

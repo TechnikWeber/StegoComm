@@ -123,9 +123,9 @@ get a **NACK** listing exactly which blocks to resend (selective-repeat ARQ).
 ### Cover topics
 
 The sentences are built from one of six everyday vocabularies — **weather & sky,
-home & kitchen, garden & outdoors, work & errands, travel & road, radio & tech**
-— and a topic is drawn per sentence, so a cover wanders between subjects the way
-real chatter does. Everything but *radio & tech* is on by default; the **AFU
+home & kitchen, garden & outdoors, work & errands, travel & road, radio & tech**,
+64 nouns each — and a topic is drawn per sentence, so a cover wanders between
+subjects the way real chatter does. Everything but *radio & tech* is on by default; the **AFU
 mode** button switches to *radio & tech* alone for amateur-radio use, and every
 box stays individually tickable either way.
 
@@ -175,12 +175,12 @@ The receiver does not need to be told which level you used.
 
 Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, 2 parity blocks):
 
-| Level | Feel | Bits/sentence | Shapes | Sentences | Characters | Example |
+| Level | Feel | Bits/sentence | Words drawn from | Sentences | Characters | Example |
 |---|---|---|---|---|---|---|
-| 0 | very believable | 13 | 8 | 89 | 2416 | `die frist ist stetig heute` |
-| 1 | believable (default) | 16 | 8 | 65 | 1842 | `nachts ist das licht flach` |
-| 2 | terse | 20 | 8 | 52 | 1582 | `draussen bleibt topf fest schwuel` |
-| 3 | very terse | 21 | 8 | 52 | 1325 | `jetzt stuhl klamm hoch` |
+| 0 | very believable | 13 | 16 nouns, 8+8 others | 89 | 2461 | `gleich wirkt der apfel fein` |
+| 1 | believable (default) | 16 | 32 nouns, 16+16 | 65 | 1814 | `hier ist der topf frisch` |
+| 2 | terse | 22 | 64 nouns, 32+16+16 | 52 | 1656 | `jetzt wirkt hochbeet gut hell` |
+| 3 | very terse | 25 | 64 nouns, 64+32+32 | 50 | 1383 | `gestern trueb ausfahrt voll` |
 
 Naturalness falls step by step in a way you can hear: levels 0 and 1 are complete
 sentences with an article and a verb, level 2 drops the article, level 3 drops
@@ -207,6 +207,13 @@ width — four verbs (`is/was/stays/seems`) times two word orders for levels 0 t
 eight orderings of the four words for level 3. Which one is used is itself part
 of the payload, so the variety is free: it adds three bits per sentence rather
 than costing anything.
+
+The higher levels also reach deeper into the word lists. Each topic holds **64
+nouns**, ordered by how everyday the word is, and the shared lists hold 64
+adjectives plus 32 each of weather words, endings and time adverbs. Level 0 sees
+only the first 16 nouns and the 8 commonest adjectives; level 3 sees everything,
+which is part of why it sounds odd — and why it carries nearly twice the bits per
+character.
 
 Neither the language nor the level is stored anywhere — the decoder simply tries
 all 8 (language, level) combinations and lets the manifest's CRC16 decide.
@@ -373,8 +380,11 @@ via GitHub Actions, and locally with:
 It runs each engine's own selftest (round-trip, parity recovery, NACK, manifest
 redundancy, resynchronisation, transport damage, grammar consistency), then
 encodes with each implementation and decodes with the other across all levels,
-languages and profiles, and finally checks that the passphrase rule is identical
-on both sides. `tests/engine.mjs` loads the browser engine straight out of
+languages and profiles — each case with a *different* topic selection, so a topic
+leaking into the bit layout would fail the build. It then checks the word lists:
+that nouns are unique across every topic, that slots which can share a position
+never share a word, and that both implementations carry byte-identical lists.
+Finally it checks that the passphrase rule is identical on both sides. `tests/engine.mjs` loads the browser engine straight out of
 `cover_studio.html`, so the tested code is the shipped code.
 
 ---

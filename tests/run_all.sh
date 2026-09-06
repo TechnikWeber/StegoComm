@@ -28,6 +28,9 @@ step "interop: python encodes, browser decodes"
 "$PYTHON" tests/interop.py write "$tmp" || fail=1
 "$NODE" tests/interop.mjs verify "$tmp" || fail=1
 
+step "word lists: invariants and agreement between implementations"
+"$PYTHON" tests/vocabulary.py || fail=1
+
 step "passphrase strength: both sides must agree"
 "$PYTHON" tests/passphrase.py || fail=1
 

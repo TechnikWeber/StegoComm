@@ -357,194 +357,175 @@ const AFU_TOPICS = ["tech"];
 
 const TOPIC_WORDS = {
   de:{
-    weather:{
-      N1:[
-        "das wetter", "der himmel", "der regen", "der wind", "die sonne", "die wolke",
-        "das licht", "der nebel", "der schnee", "der frost", "der sturm", "der mond",
-        "der stern", "die luft", "der schatten", "das eis", "der hagel", "der donner",
-        "der blitz", "der tau", "die hitze", "die kaelte", "die waerme", "die boe",
-        "das gewitter", "der schauer", "die daemmerung", "die feuchte", "das glatteis",
-        "die nachtluft", "die morgenluft", "die wolkendecke"
-      ],
-      N2:[
-        "das dach", "die strasse", "das feld", "die wiese", "der bach", "der huegel",
-        "das tal", "das ufer", "der wald", "der pfad", "die kuppe", "die senke",
-        "die klippe", "die duene", "das moor", "die heide"
-      ],
-    },
-    home:{
-      N1:[
-        "der kaffee", "der tee", "das brot", "die suppe", "die pfanne", "der topf",
-        "der ofen", "der tisch", "der stuhl", "die lampe", "der teppich", "das regal",
-        "der schrank", "der herd", "der besen", "der becher", "der teig", "der vorhang",
-        "das sofa", "die spuele", "der kuehlschrank", "der kessel", "der teller",
-        "der loeffel", "das messer", "die gabel", "die kanne", "die schuessel",
-        "das backblech", "die muehle", "das waschbecken", "der waeschekorb"
-      ],
-      N2:[
-        "der flur", "die kueche", "die kammer", "der keller", "der boden", "die treppe",
-        "die tuer", "das fenster", "die wand", "die decke", "die ecke", "die nische",
-        "die diele", "die speisekammer", "der abstellraum", "das badezimmer"
-      ],
-    },
-    garden:{
-      N1:[
-        "der garten", "das beet", "der rasen", "die hecke", "der baum", "der strauch",
-        "die blume", "die rose", "das kraut", "der salat", "die tomate", "die kartoffel",
-        "der apfel", "die birne", "die kirsche", "das laub", "die tulpe", "die zwetschge",
-        "die erdbeere", "die gurke", "die bohne", "die erbse", "die moehre", "die zwiebel",
-        "der knoblauch", "der kompost", "die wurzel", "der samen", "die knospe",
-        "die bluete", "der zweig", "die rinde"
-      ],
-      N2:[
-        "der schuppen", "der zaun", "das gartentor", "die giesskanne", "die schaufel",
-        "die harke", "die schubkarre", "das gewaechshaus", "das hochbeet",
-        "die regentonne", "die gartenbank", "die laube", "die pergola", "das spalier",
-        "das rankgitter", "der kiesweg"
-      ],
-    },
-    work:{
-      N1:[
-        "der plan", "der termin", "die sitzung", "der bericht", "die akte", "die mappe",
-        "die notiz", "die liste", "die aufgabe", "die frist", "der vertrag",
-        "die rechnung", "das angebot", "der kunde", "der kollege", "die pause", "der chef",
-        "die schicht", "das buero", "der schreibtisch", "der drucker", "der ordner",
-        "der kalender", "das protokoll", "die vorlage", "der entwurf", "die freigabe",
-        "die abnahme", "der urlaub", "der dienstplan", "die ablage", "der posteingang"
-      ],
-      N2:[
-        "die kantine", "der empfang", "das lager", "die werkstatt", "die halle",
-        "der aufzug", "der parkplatz", "die pforte", "das archiv", "die poststelle",
-        "der konferenzraum", "die teekueche", "der aushang", "der dienstweg",
-        "der schichtplan", "die zeiterfassung"
-      ],
-    },
-    travel:{
-      N1:[
-        "der zug", "der bus", "die bahn", "das gleis", "der bahnsteig", "der fahrplan",
-        "das ticket", "der koffer", "der rucksack", "die karte", "die strecke", "der stau",
-        "die ampel", "die kreuzung", "der hafen", "die abfahrt", "die route",
-        "die umleitung", "die tankstelle", "die raststaette", "die autobahn",
-        "die landstrasse", "die faehre", "der flughafen", "das gepaeck", "der anschluss",
-        "die verspaetung", "die ankunft", "die haltestelle", "das fahrrad", "der roller",
-        "der wanderweg"
-      ],
-      N2:[
-        "die bruecke", "der tunnel", "die kurve", "die steigung", "das gefaelle",
-        "der rastplatz", "die parkbucht", "die schranke", "die unterfuehrung",
-        "der wegweiser", "der meilenstein", "die grenze", "das zollhaus", "die mautstelle",
-        "der seitenstreifen", "die standspur"
-      ],
-    },
-    tech:{
-      N1:[
-        "das signal", "das band", "der funk", "die antenne", "das radio", "das netz",
-        "der strom", "das kabel", "der draht", "der sender", "das rauschen", "der pegel",
-        "die frequenz", "die batterie", "der schalter", "der stecker", "der empfaenger",
-        "der verstaerker", "das filter", "die modulation", "der akku", "das ladegeraet",
-        "die platine", "die sicherung", "das messgeraet", "das oszilloskop",
-        "der loetkolben", "der widerstand", "der kondensator", "die spule", "das relais",
-        "das mikrofon"
-      ],
-      N2:[
-        "der mast", "der turm", "die speisung", "die erdung", "das koaxkabel", "der balun",
-        "der tuner", "der dipol", "die yagi", "die groundplane", "der vorverstaerker",
-        "das netzteil", "das gehaeuse", "der luefter", "der kuehlkoerper", "die steckdose"
-      ],
-    },
+    weather:{N:[
+      "das wetter", "der himmel", "der regen", "der wind", "die sonne", "die wolke",
+      "das licht", "der nebel", "der schnee", "der frost", "der sturm", "der mond",
+      "der stern", "die luft", "der schatten", "das eis", "der hagel", "der donner",
+      "der blitz", "der tau", "die hitze", "die kaelte", "die waerme", "die boe",
+      "das gewitter", "der schauer", "die daemmerung", "die feuchte", "das glatteis",
+      "die nachtluft", "die morgenluft", "die wolkendecke", "das dach", "die strasse",
+      "das feld", "die wiese", "der bach", "der huegel", "das tal", "das ufer", "der wald",
+      "der pfad", "die kuppe", "die senke", "die klippe", "die duene", "das moor",
+      "die heide", "der horizont", "die brise", "der orkan", "der graupel", "der reif",
+      "der dunst", "die schwaden", "die front", "der hochdruck", "der tiefdruck",
+      "das sonnenlicht", "das mondlicht", "die windstille", "die wetterlage",
+      "das abendrot", "das morgenrot"
+    ]},
+    home:{N:[
+      "der kaffee", "der tee", "das brot", "die suppe", "die pfanne", "der topf",
+      "der ofen", "der tisch", "der stuhl", "die lampe", "der teppich", "das regal",
+      "der schrank", "der herd", "der besen", "der becher", "der teig", "der vorhang",
+      "das sofa", "die spuele", "der kuehlschrank", "der kessel", "der teller",
+      "der loeffel", "das messer", "die gabel", "die kanne", "die schuessel",
+      "das backblech", "die muehle", "das waschbecken", "der waeschekorb", "der flur",
+      "die kueche", "die kammer", "der keller", "der boden", "die treppe", "die tuer",
+      "das fenster", "die wand", "die decke", "die ecke", "die nische", "die diele",
+      "die speisekammer", "der abstellraum", "das badezimmer", "das sieb", "das brett",
+      "die dose", "das glas", "die flasche", "der korken", "die serviette", "das tuch",
+      "der schwamm", "der lappen", "die buerste", "die seife", "der muell", "die tonne",
+      "der vorrat", "die kiste"
+    ]},
+    garden:{N:[
+      "der garten", "das beet", "der rasen", "die hecke", "der baum", "der strauch",
+      "die blume", "die rose", "das kraut", "der salat", "die tomate", "die kartoffel",
+      "der apfel", "die birne", "die kirsche", "das laub", "die tulpe", "die zwetschge",
+      "die erdbeere", "die gurke", "die bohne", "die erbse", "die moehre", "die zwiebel",
+      "der knoblauch", "der kompost", "die wurzel", "der samen", "die knospe",
+      "die bluete", "der zweig", "die rinde", "der schuppen", "der zaun", "das gartentor",
+      "die giesskanne", "die schaufel", "die harke", "die schubkarre", "das gewaechshaus",
+      "das hochbeet", "die regentonne", "die gartenbank", "die laube", "die pergola",
+      "das spalier", "das rankgitter", "der kiesweg", "der spaten", "die schere",
+      "der eimer", "der sack", "die erde", "der mulch", "der duenger", "der halm",
+      "die ranke", "der dorn", "der stiel", "das blatt", "die schnecke", "die biene",
+      "die hummel", "die amsel"
+    ]},
+    work:{N:[
+      "der plan", "der termin", "die sitzung", "der bericht", "die akte", "die mappe",
+      "die notiz", "die liste", "die aufgabe", "die frist", "der vertrag", "die rechnung",
+      "das angebot", "der kunde", "der kollege", "die pause", "der chef", "die schicht",
+      "das buero", "der schreibtisch", "der drucker", "der ordner", "der kalender",
+      "das protokoll", "die vorlage", "der entwurf", "die freigabe", "die abnahme",
+      "der urlaub", "der dienstplan", "die ablage", "der posteingang", "die kantine",
+      "der empfang", "das lager", "die werkstatt", "die halle", "der aufzug",
+      "der parkplatz", "die pforte", "das archiv", "die poststelle", "der konferenzraum",
+      "die teekueche", "der aushang", "der dienstweg", "der schichtplan",
+      "die zeiterfassung", "der antrag", "das formular", "der stempel", "die unterschrift",
+      "der anruf", "das telefon", "die besprechung", "die abteilung", "das budget",
+      "die kennzahl", "die bilanz", "die prognose", "das quartal", "der umsatz",
+      "die zulage", "der beleg"
+    ]},
+    travel:{N:[
+      "der zug", "der bus", "die bahn", "das gleis", "der bahnsteig", "der fahrplan",
+      "das ticket", "der koffer", "der rucksack", "die karte", "die strecke", "der stau",
+      "die ampel", "die kreuzung", "der hafen", "die abfahrt", "die route",
+      "die umleitung", "die tankstelle", "die raststaette", "die autobahn",
+      "die landstrasse", "die faehre", "der flughafen", "das gepaeck", "der anschluss",
+      "die verspaetung", "die ankunft", "die haltestelle", "das fahrrad", "der roller",
+      "der wanderweg", "die bruecke", "der tunnel", "die kurve", "die steigung",
+      "das gefaelle", "der rastplatz", "die parkbucht", "die schranke",
+      "die unterfuehrung", "der wegweiser", "der meilenstein", "die grenze",
+      "das zollhaus", "die mautstelle", "der seitenstreifen", "die standspur", "die reise",
+      "die fahrt", "das abteil", "der waggon", "der schaffner", "die spur", "die rampe",
+      "die ausfahrt", "die einfahrt", "der kilometer", "das benzin", "der motor",
+      "der reifen", "die bremse", "das lenkrad", "der spiegel"
+    ]},
+    tech:{N:[
+      "das signal", "das band", "der funk", "die antenne", "das radio", "das netz",
+      "der strom", "das kabel", "der draht", "der sender", "das rauschen", "der pegel",
+      "die frequenz", "die batterie", "der schalter", "der stecker", "der empfaenger",
+      "der verstaerker", "das filter", "die modulation", "der akku", "das ladegeraet",
+      "die platine", "die sicherung", "das messgeraet", "das oszilloskop",
+      "der loetkolben", "der widerstand", "der kondensator", "die spule", "das relais",
+      "das mikrofon", "der mast", "der turm", "die speisung", "die erdung",
+      "das koaxkabel", "der balun", "der tuner", "der dipol", "die yagi",
+      "die groundplane", "der vorverstaerker", "das netzteil", "das gehaeuse",
+      "der luefter", "der kuehlkoerper", "die steckdose", "der knopf", "der regler",
+      "die anzeige", "die skala", "die litze", "das loetzinn", "die buchse", "die klemme",
+      "die drossel", "die diode", "der transistor", "der quarz", "das funkgeraet",
+      "die handfunke", "die rauschsperre", "die feldstaerke"
+    ]},
   },
   en:{
-    weather:{
-      N1:[
-        "the weather", "the sky", "the rain", "the wind", "the sun", "the cloud",
-        "the daylight", "the fog", "the snow", "the frost", "the storm", "the moon",
-        "the star", "the air", "the shade", "the ice", "the hail", "the thunder",
-        "the lightning", "the dew", "the heat", "the chill", "the warmth", "the gust",
-        "the drizzle", "the shower", "the dusk", "the humidity", "the sleet",
-        "the nightair", "the morningair", "the greyness"
-      ],
-      N2:[
-        "the roof", "the road", "the field", "the meadow", "the brook", "the hill",
-        "the valley", "the shore", "the wood", "the trail", "the ridge", "the dell",
-        "the cliff", "the dune", "the moor", "the heath"
-      ],
-    },
-    home:{
-      N1:[
-        "the coffee", "the tea", "the bread", "the soup", "the pan", "the pot", "the oven",
-        "the table", "the chair", "the lamp", "the carpet", "the shelf", "the cupboard",
-        "the stove", "the broom", "the mug", "the dough", "the curtain", "the sofa",
-        "the sink", "the fridge", "the kettle", "the plate", "the spoon", "the knife",
-        "the fork", "the jug", "the bowl", "the tray", "the grinder", "the basin",
-        "the hamper"
-      ],
-      N2:[
-        "the hallway", "the kitchen", "the pantry", "the cellar", "the floor",
-        "the staircase", "the door", "the window", "the wall", "the ceiling", "the corner",
-        "the alcove", "the landing", "the larder", "the closet", "the bathroom"
-      ],
-    },
-    garden:{
-      N1:[
-        "the garden", "the bed", "the lawn", "the hedge", "the tree", "the shrub",
-        "the flower", "the rose", "the herb", "the lettuce", "the tomato", "the potato",
-        "the apple", "the pear", "the cherry", "the leaf", "the tulip", "the plum",
-        "the strawberry", "the cucumber", "the bean", "the pea", "the carrot", "the onion",
-        "the garlic", "the compost", "the root", "the seed", "the bud", "the blossom",
-        "the twig", "the bark"
-      ],
-      N2:[
-        "the shed", "the fence", "the gate", "the hose", "the spade", "the rake",
-        "the barrow", "the greenhouse", "the planter", "the waterbutt", "the bench",
-        "the arbour", "the pergola", "the trellis", "the lattice", "the gravelpath"
-      ],
-    },
-    work:{
-      N1:[
-        "the plan", "the appointment", "the meeting", "the report", "the file",
-        "the folder", "the note", "the list", "the task", "the deadline", "the contract",
-        "the invoice", "the quote", "the client", "the colleague", "the break", "the boss",
-        "the shift", "the office", "the desk", "the printer", "the binder", "the calendar",
-        "the minutes", "the template", "the draft", "the approval", "the handover",
-        "the holiday", "the rota", "the filing", "the inbox"
-      ],
-      N2:[
-        "the canteen", "the reception", "the warehouse", "the workshop", "the hall",
-        "the lift", "the carpark", "the gatehouse", "the archive", "the postroom",
-        "the boardroom", "the kitchenette", "the noticeboard", "the procedure",
-        "the roster", "the timesheet"
-      ],
-    },
-    travel:{
-      N1:[
-        "the train", "the bus", "the tram", "the track", "the platform", "the timetable",
-        "the ticket", "the suitcase", "the rucksack", "the map", "the route", "the jam",
-        "the crossing", "the junction", "the harbour", "the departure", "the leg",
-        "the diversion", "the garage", "the services", "the motorway", "the lane",
-        "the ferry", "the airport", "the luggage", "the connection", "the delay",
-        "the arrival", "the stop", "the bicycle", "the scooter", "the footpath"
-      ],
-      N2:[
-        "the bridge", "the tunnel", "the bend", "the climb", "the descent", "the layby",
-        "the verge", "the barrier", "the underpass", "the signpost", "the milestone",
-        "the border", "the tollbooth", "the checkpoint", "the hardshoulder", "the sliproad"
-      ],
-    },
-    tech:{
-      N1:[
-        "the signal", "the band", "the radio", "the antenna", "the network", "the power",
-        "the cable", "the wire", "the noise", "the level", "the frequency", "the battery",
-        "the switch", "the plug", "the fuse", "the meter", "the receiver",
-        "the transmitter", "the amplifier", "the filter", "the modulation", "the charger",
-        "the board", "the scope", "the solder", "the resistor", "the capacitor",
-        "the coil", "the relay", "the microphone", "the mains", "the feed"
-      ],
-      N2:[
-        "the mast", "the tower", "the feedline", "the earth", "the coax", "the balun",
-        "the tuner", "the dipole", "the yagi", "the groundplane", "the preamp", "the psu",
-        "the case", "the fan", "the heatsink", "the socket"
-      ],
-    },
+    weather:{N:[
+      "the weather", "the sky", "the rain", "the wind", "the sun", "the cloud",
+      "the daylight", "the fog", "the snow", "the frost", "the storm", "the moon",
+      "the star", "the air", "the shade", "the ice", "the hail", "the thunder",
+      "the lightning", "the dew", "the heat", "the chill", "the warmth", "the gust",
+      "the drizzle", "the shower", "the dusk", "the humidity", "the sleet", "the nightair",
+      "the morningair", "the greyness", "the roof", "the road", "the field", "the meadow",
+      "the brook", "the hill", "the valley", "the shore", "the wood", "the trail",
+      "the ridge", "the dell", "the cliff", "the dune", "the moor", "the heath",
+      "the horizon", "the breeze", "the gale", "the squall", "the rime", "the mist",
+      "the vapour", "the front", "the trough", "the sunlight", "the moonlight",
+      "the stillness", "the forecast", "the sunset", "the sunrise", "the daybreak"
+    ]},
+    home:{N:[
+      "the coffee", "the tea", "the bread", "the soup", "the pan", "the pot", "the oven",
+      "the table", "the chair", "the lamp", "the carpet", "the shelf", "the cupboard",
+      "the stove", "the broom", "the mug", "the dough", "the curtain", "the sofa",
+      "the sink", "the fridge", "the kettle", "the plate", "the spoon", "the knife",
+      "the fork", "the jug", "the bowl", "the tray", "the grinder", "the basin",
+      "the hamper", "the hallway", "the kitchen", "the pantry", "the cellar", "the floor",
+      "the staircase", "the door", "the window", "the wall", "the ceiling", "the corner",
+      "the alcove", "the landing", "the larder", "the closet", "the bathroom", "the sieve",
+      "the plank", "the tin", "the glass", "the bottle", "the cork", "the napkin",
+      "the cloth", "the sponge", "the rag", "the brush", "the soap", "the rubbish",
+      "the bin", "the stock", "the crate"
+    ]},
+    garden:{N:[
+      "the garden", "the bed", "the lawn", "the hedge", "the tree", "the shrub",
+      "the flower", "the rose", "the herb", "the lettuce", "the tomato", "the potato",
+      "the apple", "the pear", "the cherry", "the leaf", "the tulip", "the plum",
+      "the strawberry", "the cucumber", "the bean", "the pea", "the carrot", "the onion",
+      "the garlic", "the compost", "the root", "the seed", "the bud", "the blossom",
+      "the twig", "the bark", "the shed", "the fence", "the gate", "the hose", "the spade",
+      "the rake", "the barrow", "the greenhouse", "the planter", "the waterbutt",
+      "the bench", "the arbour", "the pergola", "the trellis", "the lattice",
+      "the gravelpath", "the shears", "the bucket", "the sack", "the soil", "the mulch",
+      "the fertiliser", "the stem", "the tendril", "the thorn", "the stalk", "the snail",
+      "the bee", "the bumblebee", "the blackbird", "the dibber", "the sapling"
+    ]},
+    work:{N:[
+      "the plan", "the appointment", "the meeting", "the report", "the file", "the folder",
+      "the note", "the list", "the task", "the deadline", "the contract", "the invoice",
+      "the quote", "the client", "the colleague", "the break", "the boss", "the shift",
+      "the office", "the desk", "the printer", "the binder", "the calendar", "the minutes",
+      "the template", "the draft", "the approval", "the handover", "the holiday",
+      "the rota", "the filing", "the inbox", "the canteen", "the reception",
+      "the warehouse", "the workshop", "the hall", "the lift", "the carpark",
+      "the gatehouse", "the archive", "the postroom", "the boardroom", "the kitchenette",
+      "the noticeboard", "the procedure", "the roster", "the timesheet", "the application",
+      "the form", "the stamp", "the signature", "the call", "the phone", "the briefing",
+      "the department", "the budget", "the metric", "the balance", "the projection",
+      "the quarter", "the turnover", "the allowance", "the receipt"
+    ]},
+    travel:{N:[
+      "the train", "the bus", "the tram", "the track", "the platform", "the timetable",
+      "the ticket", "the suitcase", "the rucksack", "the map", "the route", "the jam",
+      "the crossing", "the junction", "the harbour", "the departure", "the leg",
+      "the diversion", "the garage", "the services", "the motorway", "the lane",
+      "the ferry", "the airport", "the luggage", "the connection", "the delay",
+      "the arrival", "the stop", "the bicycle", "the scooter", "the footpath",
+      "the bridge", "the tunnel", "the bend", "the climb", "the descent", "the layby",
+      "the verge", "the barrier", "the underpass", "the signpost", "the milestone",
+      "the border", "the tollbooth", "the checkpoint", "the hardshoulder", "the sliproad",
+      "the journey", "the ride", "the compartment", "the carriage", "the conductor",
+      "the ramp", "the exit", "the entrance", "the kilometre", "the petrol", "the engine",
+      "the tyre", "the brake", "the wheel", "the mirror", "the wing"
+    ]},
+    tech:{N:[
+      "the signal", "the band", "the radio", "the antenna", "the network", "the power",
+      "the cable", "the wire", "the noise", "the level", "the frequency", "the battery",
+      "the switch", "the plug", "the fuse", "the meter", "the receiver", "the transmitter",
+      "the amplifier", "the filter", "the modulation", "the charger", "the board",
+      "the scope", "the solder", "the resistor", "the capacitor", "the coil", "the relay",
+      "the microphone", "the mains", "the feed", "the mast", "the tower", "the feedline",
+      "the earth", "the coax", "the balun", "the tuner", "the dipole", "the yagi",
+      "the groundplane", "the preamp", "the psu", "the case", "the fan", "the heatsink",
+      "the socket", "the knob", "the dial", "the gauge", "the scale", "the strand",
+      "the flux", "the jack", "the clamp", "the choke", "the diode", "the transistor",
+      "the crystal", "the handheld", "the squelch", "the fieldstrength", "the rig"
+    ]},
   },
 };
 
@@ -555,25 +536,30 @@ const SHARED_POOLS = {
       "gut", "fein", "mau", "stark", "ruhig", "laut", "stetig", "klar", "matt", "zaeh",
       "frisch", "flach", "dicht", "fest", "mild", "rau", "schwach", "hart", "weich",
       "glatt", "steil", "eng", "breit", "tief", "hoch", "kurz", "lang", "dumpf", "spitz",
-      "grob", "zart", "schroff"
+      "grob", "zart", "schroff", "bereit", "spaet", "nah", "fertig", "offen", "langsam",
+      "knapp", "leer", "voll", "frei", "sicher", "locker", "straff", "schief", "gerade",
+      "sauber", "neu", "alt", "heil", "krumm", "rund", "eckig", "leicht", "schwer", "hohl",
+      "massiv", "roh", "blank", "stumpf", "wach", "muede", "derb"
     ],
     A2:[
       "warm", "kuehl", "still", "windig", "hell", "trueb", "trocken", "feucht", "sonnig",
-      "wolkig", "kalt", "lau", "diesig", "klamm", "schwuel", "frostig"
-    ],
-    A3:[
-      "bereit", "spaet", "nah", "fertig", "offen", "langsam", "knapp", "leer", "voll",
-      "frei", "sicher", "locker", "straff", "schief", "gerade", "sauber", "neu", "alt",
-      "heil", "krumm", "rund", "eckig", "leicht", "schwer", "hohl", "massiv", "roh",
-      "blank", "stumpf", "wach", "muede", "still"
+      "wolkig", "kalt", "lau", "diesig", "klamm", "schwuel", "frostig", "eisig", "stickig",
+      "zugig", "prall", "milchig", "grau", "blass", "fahl", "dunstig", "regnerisch",
+      "bedeckt", "heiter", "mondhell", "sternklar", "taufrisch", "windstill"
     ],
     END:[
       "hier", "jetzt", "wieder", "noch", "heute", "gleich", "spaeter", "morgen", "abends",
-      "nachts", "drinnen", "draussen", "oben", "unten", "vorn", "hinten"
+      "nachts", "drinnen", "draussen", "oben", "unten", "vorn", "hinten", "nebenan",
+      "gegenueber", "ringsum", "ueberall", "nirgends", "zuhause", "weiterhin", "momentan",
+      "derzeit", "neuerdings", "seither", "mittags", "sonntags", "wochentags", "vorhin",
+      "danach"
     ],
     ADV2:[
       "gleich", "spaeter", "heute", "morgen", "abends", "nachts", "frueh", "bald", "jetzt",
-      "dann", "eben", "stets", "oft", "selten", "immer", "nie"
+      "dann", "eben", "stets", "oft", "selten", "immer", "nie", "gestern", "vorgestern",
+      "uebermorgen", "taeglich", "stuendlich", "jaehrlich", "monatlich", "anfangs",
+      "zuletzt", "zeitweise", "laufend", "erneut", "wiederholt", "gelegentlich", "kaum",
+      "sofort"
     ],
   },
   en:{
@@ -581,33 +567,38 @@ const SHARED_POOLS = {
       "good", "fine", "poor", "strong", "quiet", "noisy", "steady", "clear", "dull",
       "tough", "fresh", "flat", "dense", "firm", "mild", "rough", "weak", "hard", "soft",
       "smooth", "steep", "narrow", "wide", "deep", "high", "short", "long", "muffled",
-      "sharp", "coarse", "tender", "harsh"
+      "sharp", "coarse", "tender", "harsh", "ready", "late", "close", "set", "open",
+      "slow", "tight", "empty", "full", "free", "safe", "loose", "taut", "crooked",
+      "straight", "clean", "new", "old", "whole", "bent", "round", "square", "light",
+      "heavy", "hollow", "solid", "raw", "plain", "blunt", "awake", "weary", "silent"
     ],
     A2:[
       "warm", "cool", "calm", "windy", "bright", "cloudy", "dry", "damp", "sunny",
-      "overcast", "cold", "mellow", "hazy", "clammy", "muggy", "frosty"
-    ],
-    A3:[
-      "ready", "late", "close", "set", "open", "slow", "tight", "empty", "full", "free",
-      "safe", "loose", "taut", "crooked", "straight", "clean", "new", "old", "whole",
-      "bent", "round", "square", "light", "heavy", "hollow", "solid", "raw", "plain",
-      "blunt", "awake", "weary", "silent"
+      "overcast", "cold", "mellow", "hazy", "clammy", "muggy", "frosty", "icy", "stuffy",
+      "drafty", "plump", "milky", "grey", "pale", "wan", "misty", "rainy", "dim", "fair",
+      "starlit", "moonlit", "dewy", "hushed"
     ],
     END:[
       "here", "now", "again", "still", "today", "soon", "later", "tomorrow", "tonight",
-      "outside", "inside", "upstairs", "downstairs", "ahead", "behind", "nearby"
+      "outside", "inside", "upstairs", "downstairs", "ahead", "behind", "nearby",
+      "nextdoor", "opposite", "around", "everywhere", "nowhere", "athome", "meanwhile",
+      "currently", "recently", "since", "midday", "sundays", "weekdays", "earlier",
+      "afterwards", "elsewhere"
     ],
     ADV2:[
       "soon", "later", "today", "tomorrow", "tonight", "overnight", "early", "shortly",
-      "now", "then", "briefly", "lately", "often", "rarely", "always", "never"
+      "now", "then", "briefly", "lately", "often", "rarely", "always", "never",
+      "yesterday", "weekly", "daily", "hourly", "yearly", "monthly", "initially",
+      "finally", "occasionally", "repeatedly", "hardly", "seldom", "twice", "once",
+      "afresh", "promptly"
     ],
   },
 };
 
 /* Slot name -> word list. A "b" prefix renders the form without its article.
-   N1/N2 come from the topic, everything else from the shared pools. */
-const SLOT_POOL = {n1:"N1", b1:"N1", n2:"N2", b2:"N2",
-                   a1:"A1", a2:"A2", a3:"A3", end:"END", adv2:"ADV2"};
+   n1/b1 come from the topic, everything else from the shared pools. */
+const SLOT_POOL = {n1:"N", b1:"N",
+                   a1:"A1", a2:"A2", end:"END", adv2:"ADV2"};
 
 /* {slot:count} — count is the prefix length used and must be a power of two.
    No punctuation anywhere: every character has to survive the transport, and
@@ -640,24 +631,24 @@ const TEMPLATES = {
       "{end:16} wirkt {n1:32} {a1:16}",
     ],
     [
-      "{b1:32} ist {a1:16} {a2:16} {end:16}",
-      "{b1:32} war {a1:16} {a2:16} {end:16}",
-      "{b1:32} bleibt {a1:16} {a2:16} {end:16}",
-      "{b1:32} wirkt {a1:16} {a2:16} {end:16}",
-      "{end:16} ist {b1:32} {a1:16} {a2:16}",
-      "{end:16} war {b1:32} {a1:16} {a2:16}",
-      "{end:16} bleibt {b1:32} {a1:16} {a2:16}",
-      "{end:16} wirkt {b1:32} {a1:16} {a2:16}",
+      "{b1:64} ist {a1:32} {a2:16} {end:16}",
+      "{b1:64} war {a1:32} {a2:16} {end:16}",
+      "{b1:64} bleibt {a1:32} {a2:16} {end:16}",
+      "{b1:64} wirkt {a1:32} {a2:16} {end:16}",
+      "{end:16} ist {b1:64} {a1:32} {a2:16}",
+      "{end:16} war {b1:64} {a1:32} {a2:16}",
+      "{end:16} bleibt {b1:64} {a1:32} {a2:16}",
+      "{end:16} wirkt {b1:64} {a1:32} {a2:16}",
     ],
     [
-      "{b1:32} {a1:32} {adv2:16} {a2:16}",
-      "{adv2:16} {a2:16} {b1:32} {a1:32}",
-      "{b1:32} {a2:16} {adv2:16} {a1:32}",
-      "{adv2:16} {a1:32} {b1:32} {a2:16}",
-      "{a1:32} {b1:32} {adv2:16} {a2:16}",
-      "{a2:16} {b1:32} {adv2:16} {a1:32}",
-      "{adv2:16} {b1:32} {a1:32} {a2:16}",
-      "{adv2:16} {b1:32} {a2:16} {a1:32}",
+      "{b1:64} {a1:64} {adv2:32} {a2:32}",
+      "{adv2:32} {a2:32} {b1:64} {a1:64}",
+      "{b1:64} {a2:32} {adv2:32} {a1:64}",
+      "{adv2:32} {a1:64} {b1:64} {a2:32}",
+      "{a1:64} {b1:64} {adv2:32} {a2:32}",
+      "{a2:32} {b1:64} {adv2:32} {a1:64}",
+      "{adv2:32} {b1:64} {a1:64} {a2:32}",
+      "{adv2:32} {b1:64} {a2:32} {a1:64}",
     ],
   ],
   en:[
@@ -682,24 +673,24 @@ const TEMPLATES = {
       "{end:16} {n1:32} seems {a1:16}",
     ],
     [
-      "{b1:32} is {a1:16} {a2:16} {end:16}",
-      "{b1:32} was {a1:16} {a2:16} {end:16}",
-      "{b1:32} stays {a1:16} {a2:16} {end:16}",
-      "{b1:32} seems {a1:16} {a2:16} {end:16}",
-      "{end:16} {b1:32} is {a1:16} {a2:16}",
-      "{end:16} {b1:32} was {a1:16} {a2:16}",
-      "{end:16} {b1:32} stays {a1:16} {a2:16}",
-      "{end:16} {b1:32} seems {a1:16} {a2:16}",
+      "{b1:64} is {a1:32} {a2:16} {end:16}",
+      "{b1:64} was {a1:32} {a2:16} {end:16}",
+      "{b1:64} stays {a1:32} {a2:16} {end:16}",
+      "{b1:64} seems {a1:32} {a2:16} {end:16}",
+      "{end:16} {b1:64} is {a1:32} {a2:16}",
+      "{end:16} {b1:64} was {a1:32} {a2:16}",
+      "{end:16} {b1:64} stays {a1:32} {a2:16}",
+      "{end:16} {b1:64} seems {a1:32} {a2:16}",
     ],
     [
-      "{b1:32} {a1:32} {adv2:16} {a2:16}",
-      "{adv2:16} {a2:16} {b1:32} {a1:32}",
-      "{b1:32} {a2:16} {adv2:16} {a1:32}",
-      "{adv2:16} {a1:32} {b1:32} {a2:16}",
-      "{a1:32} {b1:32} {adv2:16} {a2:16}",
-      "{a2:16} {b1:32} {adv2:16} {a1:32}",
-      "{adv2:16} {b1:32} {a1:32} {a2:16}",
-      "{adv2:16} {b1:32} {a2:16} {a1:32}",
+      "{b1:64} {a1:64} {adv2:32} {a2:32}",
+      "{adv2:32} {a2:32} {b1:64} {a1:64}",
+      "{b1:64} {a2:32} {adv2:32} {a1:64}",
+      "{adv2:32} {a1:64} {b1:64} {a2:32}",
+      "{a1:64} {b1:64} {adv2:32} {a2:32}",
+      "{a2:32} {b1:64} {adv2:32} {a1:64}",
+      "{adv2:32} {b1:64} {a1:64} {a2:32}",
+      "{adv2:32} {b1:64} {a2:32} {a1:64}",
     ],
   ],
 };
@@ -742,9 +733,8 @@ const NOUN_TOPIC = {};
   for(const lang of ["de","en"]){
     NOUN_TOPIC[lang]={};
     for(const topic of TOPIC_ORDER)
-      for(const key of ["N1","N2"])
-        for(const w of TOPIC_WORDS[lang][topic][key])
-          NOUN_TOPIC[lang][w.slice(w.indexOf(" ")+1)]=topic;
+      for(const w of TOPIC_WORDS[lang][topic].N)
+        NOUN_TOPIC[lang][w.slice(w.indexOf(" ")+1)]=topic;
   }
 })();
 
