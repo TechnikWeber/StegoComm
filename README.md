@@ -38,10 +38,11 @@ manifest is sent twice — once at the start, once at the end, with different
 nonces and therefore completely different wording — so losing one spot does not
 cost you the message.
 
-In the `plain` profile the cover is therefore **nothing but chat sentences**. The
-`js8call` profile additionally prints a decorative callsign line per section
-(`DE W1ABC MSG 3/14`) to look like a radio exchange — it carries no data at all
-and the decoder simply skips it.
+The cover is therefore **nothing but carrier sentences** — there is no framing
+line of any kind. The two profiles differ only in casing: `js8call` emits upper
+case (the character set JS8Call transmits most efficiently), `plain` emits lower
+case so it reads like an ordinary chat message. Casing carries no data; the
+decoder lower-cases everything before parsing.
 
 The result looks like harmless chatter (or a ham-radio JS8Call exchange) but carries an encrypted payload. The receiver reverses everything; a per-block CRC detects damaged blocks and treats them as erasures, which parity repairs up to its limit — beyond that you get a **NACK** listing exactly which blocks to resend (selective-repeat ARQ).
 
@@ -110,7 +111,7 @@ python3 stegocomms.py selftest
 python3 stegocomms.py encode --pass "your-shared-passphrase" --lang en --level 1 \
         "Meet Sunday 6pm at the old harbour"
 
-# ... as pure chat text, with no callsign decoration at all
+# ... in lower case, so it reads like an ordinary chat message
 python3 stegocomms.py encode --pass "your-shared-passphrase" --profile plain \
         --lang en --level 1 "Meet Sunday 6pm at the old harbour"
 
@@ -165,10 +166,12 @@ Manifest wird zweimal gesendet — am Anfang und am Ende, mit verschiedenen Nonc
 und daher völlig verschiedenem Wortlaut — damit der Verlust einer Stelle nicht
 die ganze Nachricht kostet.
 
-Im Profil `plain` besteht das Cover deshalb **ausschließlich aus Chat-Sätzen**.
-Das Profil `js8call` stellt jedem Abschnitt zusätzlich eine dekorative
-Rufzeichen-Zeile voran (`DE W1ABC MSG 3/14`), damit es nach Funkverkehr aussieht
-— sie trägt keinerlei Daten und wird beim Dekodieren übersprungen.
+Das Cover besteht deshalb **ausschließlich aus Trägersätzen** — es gibt keinerlei
+Rahmenzeile. Die beiden Profile unterscheiden sich nur in der Schreibweise:
+`js8call` liefert Großbuchstaben (den Zeichensatz, den JS8Call am effizientesten
+überträgt), `plain` Kleinbuchstaben, damit es wie eine normale Chat-Nachricht
+aussieht. Die Schreibweise trägt keine Daten; der Decoder wandelt vor dem Parsen
+ohnehin alles in Kleinbuchstaben.
 
 Das Ergebnis sieht aus wie harmloses Geplauder (oder ein JS8Call-Funkspruch), transportiert aber eine verschlüsselte Nutzlast. Der Empfänger dreht alles zurück; eine Block-CRC erkennt beschädigte Blöcke und behandelt sie als Erasure, was die Parity bis zu ihrer Grenze repariert — darüber kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind (Selective-Repeat-ARQ).
 
@@ -237,7 +240,7 @@ python3 stegocomms.py selftest
 python3 stegocomms.py encode --pass "gemeinsame-passphrase" --lang de --level 1 \
         "Treffen Sonntag 18 Uhr am alten Hafen"
 
-# ... als reiner Chat-Text, ganz ohne Rufzeichen-Deko
+# ... in Kleinschreibung, damit es wie eine normale Chat-Nachricht aussieht
 python3 stegocomms.py encode --pass "gemeinsame-passphrase" --profile plain \
         --lang de --level 1 "Treffen Sonntag 18 Uhr am alten Hafen"
 
@@ -264,6 +267,46 @@ schiebt der Decoder ein Fenster über den Text: er liest *n* Sätze, prüft die
 Block-CRC und rückt bei Misserfolg nur um **einen** Satz weiter statt um einen
 ganzen Block. Ein verlorener oder verstümmelter Satz kostet damit einen Block,
 nicht den Rest der Nachricht.
+
+---
+
+## Sending over JS8Call / Senden über JS8Call
+
+**Paste only the cover sentences. Nothing else.** JS8Call puts your own callsign
+on the air itself — you type message text, not a header. Do not prepend `DE
+<call>`, and never send a callsign that is not yours: that is illegal wherever
+amateur radio is licensed. Earlier versions of this tool printed decorative
+callsign lines (`DE W1ABC MSG 3/14`); they were removed for exactly this reason.
+If you still have such a cover lying around it decodes fine — the decoder skips
+lines it cannot parse.
+
+1. Encode with `--profile js8call` (upper case) or the **JS8Call** channel in the
+   browser tool.
+2. Copy the whole cover.
+3. Paste it into JS8Call's send box and transmit. Long covers exceed one frame;
+   JS8Call splits them, or you send them in chunks.
+4. The receiver copies the received text out of JS8Call — their own and your
+   callsign prefixes included, those do no harm — and pastes it into `decode`.
+
+Two things to check on your own installation before relying on this:
+
+- **Punctuation.** Levels 2 and 3 put a comma inside each sentence. Confirm that
+  a comma survives your JS8Call setup intact; if it is dropped or substituted,
+  stay on level 0 or 1, which use no punctuation at all.
+- **Line breaks.** The decoder needs one sentence per line. If your transport
+  reflows or joins lines, the sentences run together and nothing decodes.
+
+**Nur die Cover-Sätze einfügen, sonst nichts.** JS8Call sendet dein Rufzeichen
+selbst — du tippst dort Nachrichtentext, keinen Header. Also kein `DE <call>`
+davorsetzen, und niemals ein fremdes Rufzeichen senden: das ist überall dort
+illegal, wo Amateurfunk lizenziert ist. Frühere Fassungen dieses Werkzeugs haben
+dekorative Rufzeichen-Zeilen ausgegeben (`DE W1ABC MSG 3/14`); genau deswegen
+sind sie entfernt worden. Ein altes Cover mit solchen Zeilen lässt sich weiterhin
+dekodieren — der Decoder überspringt, was er nicht parsen kann.
+
+Vorher prüfen: ob ein **Komma** deine JS8Call-Strecke unbeschadet übersteht (nur
+Stufe 2 und 3 nutzen eins — Stufe 0 und 1 kommen ohne Satzzeichen aus), und ob
+**Zeilenumbrüche** erhalten bleiben; der Decoder braucht einen Satz pro Zeile.
 
 ---
 

@@ -67,7 +67,7 @@
   .stepper button:hover{background:#1C2C39}
   .stepper .val{flex:1;text-align:center;font-family:var(--mono);font-size:15px}
 
-  /* Plausibilitaets-Regler */
+  /* believability slider */
   .slider-wrap{margin-top:4px}
   .slider-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
   .slider-head .name{font-size:15px;font-weight:500}
@@ -84,7 +84,7 @@
   .scale{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
     margin-top:8px;letter-spacing:.03em}
 
-  /* Hero-Readout */
+  /* hero readout */
   .hero{display:flex;flex-wrap:wrap;gap:20px 34px;align-items:flex-end;
         padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px}
   .counter .big{font-family:var(--mono);font-weight:600;color:var(--amber);
@@ -134,7 +134,7 @@
   </div>
 
   <div class="grid">
-    <!-- Steuerung -->
+    <!-- controls -->
     <div>
       <div class="card">
         <label class="field" for="secret">Secret message</label>
@@ -184,7 +184,7 @@
       </div>
     </div>
 
-    <!-- Ausgabe -->
+    <!-- output -->
     <div class="card">
       <div class="hero">
         <div class="counter">
@@ -211,8 +211,9 @@
         * rough estimate for JS8Call normal mode (~0.9 characters/s). Over Plain/WhatsApp
         the transfer is effectively instant. Airtime tracks <i>characters</i>, not sentences,
         so the believability slider genuinely shortens it.
-        On the <b>Plain</b> channel the cover is nothing but chat sentences; the callsign
-        line on the JS8Call channel is pure decoration and carries no data.
+        The cover is nothing but carrier sentences on either channel — the two differ
+        only in casing (JS8Call transmits upper case most efficiently). Paste the cover
+        text as-is; <b>do not add a callsign</b>, JS8Call prefixes your own automatically.
         Everything — encryption (AES-256-GCM), cover generation and the round trip —
         runs in your browser (WebCrypto), with no server.
       </div>
@@ -244,40 +245,40 @@
 "use strict";
 /* =====================================================================
    StegoComm — Cover Studio (self-contained, in-browser encode + decode)
-   Wire-Format v4, byte-kompatibel zu stegocomms.py.
-   Pipeline:  Klartext -> deflate -> AES-256-GCM (iv||ct||tag)
-              -> in 8-Byte-Blöcke -> +R Cross-Block-Parity (Reed-Solomon/GF256)
-              -> je Block idx||Nutzlast||CRC8, mit Keystream verschleiert
-              -> Cover-Sätze (variable Dichte je Regler), dazu je ein Manifest
-                 an Anfang und Ende
-              -> Rest-Bits mit schlüsselabgeleitetem Zufalls-Padding gefüllt
-   Decode geht rückwärts; per-Block-CRC erkennt Beschädigung -> als Erasure
-   behandelt und via Parity ohne Nachfrage rekonstruiert (bis zur Parity-Grenze),
-   sonst NACK mit fehlenden Blöcken.  Es gibt KEINEN Klartext-Header: der
-   Decoder schiebt ein Fenster über den Text und richtet sich per CRC neu aus.
-   Selbsttest in der Konsole:  await selftest()
+   Wire format v4, byte-compatible with stegocomms.py.
+   Pipeline:  plaintext -> deflate -> AES-256-GCM (iv||ct||tag)
+              -> 8-byte blocks -> +R cross-block parity (Reed-Solomon/GF256)
+              -> per block idx||payload||CRC8, masked with a keystream
+              -> cover sentences (density varies by slider), plus one manifest
+                 at each end
+              -> leftover bits filled with key-derived random padding
+   Decode runs backwards; a per-block CRC spots damage -> treated as an erasure
+   and reconstructed via parity without a resend (up to the parity limit),
+   otherwise a NACK naming the missing blocks.  There is NO plaintext header:
+   the decoder slides a window over the text and re-aligns itself via the CRC.
+   Selftest from the console:  await selftest()
    ===================================================================== */
 
-const CHUNK = 8;                 // Byte pro Block
+const CHUNK = 8;                 // bytes per block
 const BLOCK_BITS = CHUNK * 8;    // 64
 
-/* ---------------------------------------------------- GF(256) Arithmetik */
+/* ---------------------------------------------------- GF(256) arithmetic */
 const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
 (function(){ let x=1; for(let i=0;i<255;i++){ EXP[i]=x; LOG[x]=i; x<<=1; if(x&0x100) x^=0x11d; }
   for(let i=255;i<512;i++) EXP[i]=EXP[i-255]; })();
 function gmul(a,b){ return (a===0||b===0)?0:EXP[LOG[a]+LOG[b]]; }
 function ginv(a){ return EXP[255-LOG[a]]; }
 
-/* Cauchy-Kodiermatrix R×K (jede quadratische Teilmatrix invertierbar -> MDS) */
+/* Cauchy encoding matrix R×K (every square submatrix invertible -> MDS) */
 function cauchy(R,K){
   const P=[];
   for(let r=0;r<R;r++){ const row=new Uint8Array(K); const xr=255-r;
-    for(let i=0;i<K;i++) row[i]=ginv(xr ^ i);   // xr != i garantiert (siehe encode-Grenze)
+    for(let i=0;i<K;i++) row[i]=ginv(xr ^ i);   // xr != i guaranteed (see the encode limit)
     P.push(row); }
   return P;
 }
 function unit(i,n){ const r=new Uint8Array(n); r[i]=1; return r; }
-/* GF(256)-Matrixinverse via Gauss-Jordan */
+/* GF(256) matrix inverse via Gauss-Jordan */
 function matInv(M,n){
   const A=M.map(r=>Uint8Array.from(r));
   const I=[]; for(let i=0;i<n;i++){ I.push(new Uint8Array(n)); I[i][i]=1; }
@@ -292,20 +293,20 @@ function matInv(M,n){
   return I;
 }
 
-/* ---------------------------------------------------- Bit-Helfer + CRC */
+/* ---------------------------------------------------- bit helpers + CRC */
 function bytesToBits(bytes){ const bits=[]; for(const b of bytes) for(let i=7;i>=0;i--) bits.push((b>>i)&1); return bits; }
 function bitsToBytes(bits){ const out=new Uint8Array(bits.length>>3);
   for(let i=0;i<out.length;i++){ let v=0; for(let j=0;j<8;j++) v=(v<<1)|bits[i*8+j]; out[i]=v; } return out; }
 function crc16(bytes){ let c=0xffff; for(const b of bytes){ c^=b<<8;
   for(let i=0;i<8;i++) c=(c&0x8000)?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff; } return c&0xffff; }
 
-/* ---------------------------------------------------- Grammatiken DE/EN
-   Wortlisten sind nach Gebräuchlichkeit sortiert; eine Stufe nutzt jeweils das
-   PRÄFIX der Länge 2^k (8/16/32 Einträge -> 3/4/5 Bit je Slot). Stufe 0 sieht
-   also nur die häufigsten, unauffälligsten Wörter, Stufe 3 die ganze Liste.
-   Nomen tragen ihren Artikel mit; die Slots b1/b2 rendern die bloße Form
-   (alles nach dem ersten Leerzeichen) für den Telegrammstil.
-   MUSS mit den POOLS/TEMPLATES in stegocomms.py identisch bleiben. */
+/* ---------------------------------------------------- grammars DE/EN
+   Word lists are ordered by how ordinary the word is; a level uses the PREFIX
+   of length 2^k (8/16/32 entries -> 3/4/5 bits per slot). Level 0 therefore
+   only ever sees the most common, least remarkable words, level 3 the whole
+   list. Nouns carry their article; the slots b1/b2 render the bare form
+   (everything after the first space) for the telegraphic style.
+   MUST stay identical to POOLS/TEMPLATES in stegocomms.py. */
 const POOLS = {
   de:{
     N1:["das wetter","das signal","das band","der funk",
@@ -375,17 +376,17 @@ const POOLS = {
   },
 };
 
-/* Slot-Name -> Wortliste. Ein "b"-Präfix rendert die artikellose Form. */
+/* Slot name -> word list. A "b" prefix renders the form without its article. */
 const SLOT_POOL = {n1:"N1", b1:"N1", n2:"N2", b2:"N2",
                    a1:"A1", a2:"A2", a3:"A3", end:"END", adv2:"ADV2"};
 
-/* {slot:anzahl} — anzahl ist die genutzte Präfixlänge, muss 2er-Potenz sein. */
+/* {slot:count} — count is the prefix length used and must be a power of two. */
 const TEMPLATES = {
   de:[
-    "{n1:16} ist {a1:8} {end:8}",                              // 10 Bit
-    "{n1:32} ist {a1:16} {end:16}",                            // 13 Bit
-    "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                    // 20 Bit
-    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",     // 28 Bit
+    "{n1:16} ist {a1:8} {end:8}",                              // 10 bits
+    "{n1:32} ist {a1:16} {end:16}",                            // 13 bits
+    "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                    // 20 bits
+    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",     // 28 bits
   ],
   en:[
     "{n1:16} is {a1:8} {end:8}",
@@ -394,7 +395,6 @@ const TEMPLATES = {
     "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",
   ],
 };
-const NAMES = ["W1ABC","DL2XYZ","OH5QQ","VK3RT","G0MNP"];
 
 function escapeRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
 const GRAMMARS = {};
@@ -407,13 +407,13 @@ const GRAMMARS = {};
       while((m=re.exec(tpl))){
         const name=m[1], cnt=+m[2];
         let opts=pools[SLOT_POOL[name]].slice(0,cnt);
-        if(opts.length!==cnt || (cnt & (cnt-1))) throw new Error(`Wortliste ${name}:${cnt} (${lang}) unbrauchbar`);
+        if(opts.length!==cnt || (cnt & (cnt-1))) throw new Error(`word list ${name}:${cnt} (${lang}) unusable`);
         if(name.startsWith("b")) opts=opts.map(w=>w.slice(w.indexOf(" ")+1));
-        if(new Set(opts).size!==cnt) throw new Error(`Wortliste ${name}:${cnt} (${lang}) hat Duplikate`);
+        if(new Set(opts).size!==cnt) throw new Error(`word list ${name}:${cnt} (${lang}) has duplicates`);
         const width=Math.round(Math.log2(cnt));
         slots.push({opts, width}); bits+=width;
         pat+=escapeRe(tpl.slice(last,m.index));
-        // längste Alternative zuerst -> kein vorzeitiger Teiltreffer
+        // longest alternative first -> no premature partial match
         const alts=opts.slice().sort((a,b)=>b.length-a.length);
         pat+="("+alts.map(escapeRe).join("|")+")";
         last=m.index+m[0].length;
@@ -442,7 +442,7 @@ function parseSentence(lv, line){
   return bits;
 }
 
-/* ---------------------------------------------------- Krypto (WebCrypto) */
+/* ---------------------------------------------------- crypto (WebCrypto) */
 async function deflate(bytes){ const cs=new CompressionStream("deflate");
   const w=cs.writable.getWriter(); w.write(bytes); w.close();
   return new Uint8Array(await new Response(cs.readable).arrayBuffer()); }
@@ -474,7 +474,7 @@ async function decryptMsg(ct, keyObj){
   const comp=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv}, keyObj.akey, body));
   return new TextDecoder().decode(await inflate(comp));
 }
-/* SHA-256-Keystream:  seed = raw || tag(2 Byte) || extra || counter */
+/* SHA-256 keystream:  seed = raw || tag(2 bytes) || extra || counter */
 async function ksBytes(raw, tag, extra, nbytes){
   const t=new TextEncoder().encode(tag);
   const out=new Uint8Array(nbytes); let off=0, ctr=0;
@@ -488,28 +488,30 @@ async function ksBytes(raw, tag, extra, nbytes){
   return out;
 }
 const ksManifest=(raw,mnonce,n)=>ksBytes(raw,"SM",mnonce,n);
-/* Verschleiert den Blockrahmen. Hängt bewusst NICHT vom Blockindex ab —
-   der steckt ja im Rahmen und ist beim Dekodieren zunächst unbekannt. */
+/* Masks the block frame. Deliberately does NOT depend on the block index —
+   that sits inside the frame and is unknown while decoding. */
 const ksBlock=(raw,bnonce,n)=>ksBytes(raw,"SB",bnonce,n);
-/* Füllbits am Satzende; pro Block verschieden, wird beim Dekodieren ignoriert. */
+/* Padding bits at the end of a sentence run; different per block, ignored while decoding. */
 const ksPad=(raw,bnonce,idx,n)=>ksBytes(raw,"SP",Uint8Array.from([...bnonce, idx&0xff]),n);
-/* ---------------------------------------------------- Encode / Decode
-   Wire-Format v4: kein Klartext-Header mehr. Blockindex und Block-CRC stecken
-   in den Satz-Bits; die pro Nachricht konstanten Felder (K, R, Padlänge,
-   Block-Nonce) liegen in einem MANIFEST, das selbst aus normalen Cover-Sätzen
-   besteht und mit einem schlüsselabgeleiteten Keystream verschleiert ist.
-   Es wird zweimal gesendet (Anfang + Ende, verschiedene Nonces und daher
-   völlig verschiedener Wortlaut), damit der Verlust einer Stelle nicht die
-   ganze Nachricht unlesbar macht. Sprache und Stufe stehen NICHT drin — der
-   Empfänger probiert die 8 Kombinationen durch, die CRC16 entscheidet. */
+/* ---------------------------------------------------- encode / decode
+   Wire format v4: no plaintext header any more. The block index and block CRC
+   live in the sentence bits; the fields that are constant per message (K, R,
+   pad length, block nonce) live in a MANIFEST which is itself made of ordinary
+   cover sentences and masked with a key-derived keystream.
+   It is sent twice (start + end, different nonces and therefore completely
+   different wording) so that losing one spot does not make the whole message
+   unreadable. Language and level are NOT stored — the receiver tries all 8
+   combinations and lets the CRC16 decide. */
 const MNONCE_LEN=2, BNONCE_LEN=2;
-const MANIFEST_PLAIN=1+1+1+BNONCE_LEN+2;   // K | R | Padlänge | bnonce | crc16 = 7
-const MANIFEST_LEN=MNONCE_LEN+MANIFEST_PLAIN;   // 9 Byte
+const MANIFEST_PLAIN=1+1+1+BNONCE_LEN+2;   // K | R | pad length | bnonce | crc16 = 7
+const MANIFEST_LEN=MNONCE_LEN+MANIFEST_PLAIN;   // 9 bytes
 const MANIFEST_BITS=MANIFEST_LEN*8;             // 72
-const BLOCK_FRAME=1+CHUNK+1;               // idx | payload | crc8 = 10 Byte
+const BLOCK_FRAME=1+CHUNK+1;               // idx | payload | crc8 = 10 bytes
 const FRAME_BITS=BLOCK_FRAME*8;            // 80
-const MAX_BLOCKS=254;                      // idx passt in 1 Byte, 255 bleibt frei
+const MAX_BLOCKS=254;                      // idx fits in one byte, 255 stays reserved
 
+/* js8call = upper case (JS8Call's efficient character set), plain = lower case.
+   Casing carries no data; the decoder lower-cases everything anyway. */
 function applyProfile(txt, profile){ return profile==="js8call" ? txt.toUpperCase() : txt.toLowerCase(); }
 function xorBytes(a,b){ const o=new Uint8Array(a.length);
   for(let i=0;i<a.length;i++) o[i]=a[i]^b[i]; return o; }
@@ -551,7 +553,7 @@ async function parseFrame(raw, buf, bnonce){
 }
 
 function sentencesFor(lv, nbits){ return Math.ceil(nbits/lv.bits); }
-/* Bitfeld -> Sätze; Rest der letzten Satzkapazität mit pad auffüllen. */
+/* Bit field -> sentences; fill the last sentence's spare capacity from pad. */
 function renderRun(lv, frame, nbits, pad){
   let bits=bytesToBits(frame).slice(0,nbits);
   const n=sentencesFor(lv,nbits), need=n*lv.bits-nbits;
@@ -583,28 +585,28 @@ async function encode(secret, keyObj, lang, profile, level, parity){
     const mnonce=crypto.getRandomValues(new Uint8Array(MNONCE_LEN));
     const buf=await buildManifest(raw,K,R,ctlen,bnonce,mnonce);
     const pad=await ksPad(raw,bnonce,0xff,padBytes);
-    return {header:`DE ${NAMES[0]} CQ CQ`, lines:renderRun(lv,buf,MANIFEST_BITS,pad)};
+    return {lines:renderRun(lv,buf,MANIFEST_BITS,pad)};
   };
   const sections=[await manifestSection()];
   for(let i=0;i<tot;i++){
     const buf=await buildFrame(raw,i,allb[i],bnonce);
     const pad=await ksPad(raw,bnonce,i,padBytes);
-    sections.push({header:`DE ${NAMES[i%NAMES.length]} MSG ${i}/${tot}`,
-                   lines:renderRun(lv,buf,FRAME_BITS,pad), block:i});
+    sections.push({lines:renderRun(lv,buf,FRAME_BITS,pad), block:i});
   }
   sections.push(await manifestSection());
   return {sections, K, R, tot, ctlen, level, lang, profile};
 }
 
-/* Im Profil js8call bekommt jeder Abschnitt eine dekorative Rufzeichen-Zeile —
-   sie trägt KEINE Daten und wird beim Dekodieren übersprungen. Im Profil plain
-   entfällt sie, das Cover besteht dann ausschließlich aus Chat-Sätzen. */
+/* Cover as text — nothing but carrier sentences, no framing lines of any kind.
+   The profile only decides the casing: js8call sends upper case (the character
+   set JS8Call transmits most efficiently), plain sends lower case so it reads
+   like an ordinary chat message. Never add a callsign yourself: JS8Call
+   prefixes your own automatically, and sending one that is not yours is
+   illegal. */
 function coverToText(enc, sections){
   const parts=[];
-  for(const s of (sections||enc.sections)){
-    if(enc.profile==="js8call" && s.header) parts.push(applyProfile(s.header, enc.profile));
+  for(const s of (sections||enc.sections))
     for(const l of s.lines) parts.push(applyProfile(l, enc.profile));
-  }
   return parts.join("\n");
 }
 
@@ -613,8 +615,8 @@ function normLines(t){
           .map(l=>l.trim().toLowerCase().replace(/[.\s]+$/,""));
 }
 
-/* Probiert alle (Sprache, Stufe) durch und schiebt ein Fenster über den Text;
-   die CRC16 im Manifest entscheidet. */
+/* Tries every (language, level) and slides a window over the text; the
+   manifest CRC16 decides. */
 async function findManifest(raw, lines){
   const n=lines.length;
   for(const lang of ["de","en"]){
@@ -740,19 +742,17 @@ async function recompute(){
 
   lastCover=coverToText(enc);
 
-  // Zählungen (Deko-Zeile zählt in die Zeichen, aber nicht als Trägersatz)
+  // counts
   let totalSent=0, totalChars=0;
   for(const s of enc.sections){
     totalSent+=s.lines.length;
-    if(profile==="js8call" && s.header) totalChars+=s.header.length+1;
     for(const l of s.lines) totalChars+=l.length+1;
   }
 
-  // Vorschau (erste 6 Abschnitte), Rest zusammengefasst
+  // preview (first 6 sections), the rest summarised
   const MAXSHOW=6; let html="", shown=0;
   for(const s of enc.sections){
     if(shown>=MAXSHOW) break;
-    if(profile==="js8call" && s.header) html+='<span class="hdr">'+applyProfile(s.header,profile)+"</span>\n";
     html+=s.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
   }
   if(enc.sections.length>shown) html+="\n… +"+(enc.sections.length-shown)+" more sections — "+totalSent+" sentences in total. The “Copy all” button gives you everything.";
@@ -775,7 +775,7 @@ function drawTrace(bits){
 }
 function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
-/* ---- Decode-UI ---- */
+/* ---- decode UI ---- */
 async function runDecode(){
   const box=$("rxResult"); const txt=$("rx").value;
   if(!txt.trim()){ box.className="result"; box.innerHTML='<span class="empty">Paste the cover text first.</span>'; return; }
@@ -798,7 +798,7 @@ async function runDecode(){
 }
 function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
-/* ---- Verdrahtung ---- */
+/* ---- wiring ---- */
 function seg(id,key){ const el=$(id);
   el.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return;
     [...el.children].forEach(c=>c.setAttribute("aria-pressed", c===b)); state[key]=b.dataset.v; recompute(); }); }
@@ -818,56 +818,56 @@ $("copyBtn").addEventListener("click",()=>{ if(!lastCover) return;
 $("decodeBtn").addEventListener("click",runDecode);
 $("loopBtn").addEventListener("click",()=>{ $("rx").value=lastCover; runDecode(); });
 
-/* ---- Self-Test (window.selftest() in der Konsole) ---- */
+/* ---- selftest (window.selftest() from the console) ---- */
 window.selftest=async function(){
   const key=await deriveKey("test-passphrase");
   const cases=[["de",1,2,"js8call"],["en",0,2,"plain"],["de",3,1,"plain"],["en",2,2,"js8call"]];
   let okAll=true;
   for(const [lang,level,par,profile] of cases){
-    const secret="Treffen Sonntag 18 Uhr am alten Hafen — "+lang+"/"+level;
+    const secret="Meet Sunday 6pm at the old harbour — "+lang+"/"+level;
     const enc=await encode(secret,key,lang,profile,level,par);
     const cover=coverToText(enc);
     const r0=await decode(cover,key);
     const clean=r0.ok && r0.message===secret && r0.lang===lang && r0.level===level;
-    console.log(`[${lang} L${level} P${par} ${profile}] sauber:`, r0.ok, "->",
+    console.log(`[${lang} L${level} P${par} ${profile}] clean:`, r0.ok, "->",
                 r0.message===secret?"MATCH":"MISMATCH: "+r0.message,
-                `erkannt: ${r0.lang}/L${r0.level}`);
+                `detected: ${r0.lang}/L${r0.level}`);
     okAll&&=clean;
 
-    // par Datenblöcke weg -> via Parity ohne Nachfrage
+    // drop par data blocks -> recovered via parity, no resend needed
     const keep=enc.sections.filter(s=>s.block===undefined || s.block>=par);
     const r1=await decode(coverToText(enc,keep),key);
     const via=r1.ok && r1.recovered && r1.message===secret;
-    console.log(`   ${par} Blöcke weg -> ok:`, r1.ok, "via_parity:", r1.recovered,
+    console.log(`   ${par} blocks dropped -> ok:`, r1.ok, "via_parity:", r1.recovered,
                 "msg:", via?"MATCH":(r1.error||"MISMATCH"));
     okAll&&=via;
 
-    // par+1 weg -> NACK
+    // drop par+1 -> NACK
     const keep2=enc.sections.filter(s=>s.block===undefined || s.block>=par+1);
     const r2=await decode(coverToText(enc,keep2),key);
-    console.log(`   ${par+1} Blöcke weg -> ok:`, r2.ok, "nack:", r2.missing);
+    console.log(`   ${par+1} blocks dropped -> ok:`, r2.ok, "nack:", r2.missing);
     okAll&&=(!r2.ok && !!r2.missing);
 
-    // vorderes Manifest weg -> hinteres muss übernehmen
+    // drop the leading manifest -> the trailing one must take over
     const r3=await decode(coverToText(enc,enc.sections.slice(1)),key);
-    console.log("   1. Manifest weg -> ok:", r3.ok, "msg:", r3.message===secret?"MATCH":(r3.error||"MISMATCH"));
+    console.log("   leading manifest dropped -> ok:", r3.ok, "msg:", r3.message===secret?"MATCH":(r3.error||"MISMATCH"));
     okAll&&=(r3.ok && r3.message===secret);
 
-    // ein einzelner Satz mittendrin gelöscht -> Resync
+    // delete a single sentence in the middle -> resync
     const raw=cover.split("\n"); raw.splice(Math.floor(raw.length/2),1);
     const r4=await decode(raw.join("\n"),key);
-    console.log("   1 Satz gelöscht -> ok:", r4.ok, "msg:", r4.message===secret?"MATCH":(r4.error||"NACK"));
+    console.log("   1 sentence deleted -> ok:", r4.ok, "msg:", r4.message===secret?"MATCH":(r4.error||"NACK"));
     okAll&&=(r4.ok && r4.message===secret);
   }
-  const enc=await encode("geheim",key,"de","js8call",1,2);
-  const r5=await decode(coverToText(enc), await deriveKey("falsch"));
-  console.log("[falsche Passphrase] ok:", r5.ok, "->", r5.ok?"FEHLER":"korrekt abgelehnt");
+  const enc=await encode("secret",key,"de","js8call",1,2);
+  const r5=await decode(coverToText(enc), await deriveKey("wrong"));
+  console.log("[wrong passphrase] ok:", r5.ok, "->", r5.ok?"FAILURE":"correctly rejected");
   okAll&&=!r5.ok;
-  console.log("selftest fertig:", okAll?"ALLES GRUEN":"FEHLER");
+  console.log("selftest done:", okAll?"ALL GREEN":"FAILURE");
   return okAll;
 };
 
-/* ---- Start ---- */
+/* ---- start ---- */
 state.secret=$("secret").value; state.pass=$("pass").value;
 plaus.style.setProperty("--track","linear-gradient(90deg, var(--amber) 70%, var(--danger))");
 recompute();
