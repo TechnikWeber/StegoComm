@@ -29,20 +29,51 @@ You have a secret message. StegoComm:
 4. **encodes each block as ordinary-looking sentences** — e.g. weather/radio small-talk in German or English — where the *choice of words* carries the bits,
 5. fills leftover bits with key-derived **random padding** so filler sentences don't repeat tell-tale patterns.
 
+There is **no plaintext header anywhere in the cover**. The block index and its
+CRC travel inside the sentence bits; the per-message constants (block count,
+parity count, padding length, block nonce) live in a **manifest** that is itself
+made of ordinary cover sentences and is masked with a key-derived keystream.
+Without the passphrase it cannot be told apart from a payload block. The
+manifest is sent twice — once at the start, once at the end, with different
+nonces and therefore completely different wording — so losing one spot does not
+cost you the message.
+
+In the `plain` profile the cover is therefore **nothing but chat sentences**. The
+`js8call` profile additionally prints a decorative callsign line per section
+(`DE W1ABC MSG 3/14`) to look like a radio exchange — it carries no data at all
+and the decoder simply skips it.
+
 The result looks like harmless chatter (or a ham-radio JS8Call exchange) but carries an encrypted payload. The receiver reverses everything; a per-block CRC detects damaged blocks and treats them as erasures, which parity repairs up to its limit — beyond that you get a **NACK** listing exactly which blocks to resend (selective-repeat ARQ).
 
 ### The believability slider
 
 The browser tool has a **Glaubhaftigkeit** (believability) slider, mirrored by the CLI's `--level 0..3`:
 
-| Level | Feel | Bits per sentence | Trade-off |
-|---|---|---|---|
-| 0 | very believable | 8 | most natural, longest cover |
-| 1 | believable | 13 | good compromise (default) |
-| 2 | terse | 17 | shorter, noticeably stilted |
-| 3 | very terse | 22 | shortest, clearly artificial |
+Higher levels do **not** bolt extra clauses onto the sentence — that was the v3
+design, and it backfired: a tacked-on clause bought ~5 bits but cost ~20
+characters, so density per character *fell* as the level rose and "very terse"
+produced a **longer** cover than "very believable". In v4 the sentence stays
+short and the **word lists get wider** (8/16/32 options per slot = 3/4/5 bits);
+level 3 additionally drops articles and verbs for a telegraphic style.
+Believability now falls because the word choice gets odd, not because the text
+gets longer — and the character count finally falls with the level.
 
-The receiver does **not** need to know the language or level in advance — both are written into the block header and detected automatically on decode.
+Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, `plain`, 2 parity blocks):
+
+| Level | Feel | Bits/sentence | Sentences | Characters | Bits/char |
+|---|---|---|---|---|---|
+| 0 | very believable | 10 | 104 | 2649 | 0.39 |
+| 1 | believable (default) | 13 | 89 | 2272 | 0.51 |
+| 2 | terse | 20 | 52 | 1934 | 0.54 |
+| 3 | very terse | 28 | 39 | 1507 | 0.72 |
+
+Note what the slider actually buys you: on JS8Call, airtime tracks *characters*,
+so the level genuinely halves transmission time. In a chat transport it mostly
+buys you fewer messages to paste.
+
+The receiver does **not** need to know the language or level in advance. Neither
+is stored anywhere — the decoder simply tries all 8 (language, level)
+combinations and lets the manifest's CRC16 decide.
 
 ### Install
 
@@ -79,6 +110,10 @@ python3 stegocomms.py selftest
 python3 stegocomms.py encode --pass "your-shared-passphrase" --lang en --level 1 \
         "Meet Sunday 6pm at the old harbour"
 
+# ... as pure chat text, with no callsign decoration at all
+python3 stegocomms.py encode --pass "your-shared-passphrase" --profile plain \
+        --lang en --level 1 "Meet Sunday 6pm at the old harbour"
+
 # decode cover text from stdin
 python3 stegocomms.py decode --pass "your-shared-passphrase"    # paste, then Ctrl-D
 ```
@@ -95,11 +130,17 @@ decode:  python3 stegocomms.py decode --pass P                              # pa
 ```
 plaintext → deflate → AES-256-GCM(iv‖ciphertext‖tag)
           → 8-byte data blocks (+ R Cauchy/Reed-Solomon parity blocks)
-          → per block: 64 payload bits → cover sentences (variable density)
+          → per block: idx‖payload‖CRC8 (80 bits), masked with a keystream
+          → cover sentences (variable density) + one manifest run at each end
           → spare bits filled with key-derived random padding
 ```
 
-Each layer solves one problem: GCM = confidentiality + integrity; Reed-Solomon = loss/error recovery without a round-trip; the grammar = the disguise; random padding = removes statistical tells.
+Each layer solves one problem: GCM = confidentiality + integrity; Reed-Solomon = loss/error recovery without a round-trip; the grammar = the disguise; random padding = removes statistical tells; the masked manifest = framing without a visible header.
+
+Because there are no header lines to re-synchronise on, the decoder slides a
+window over the text: it reads *n* sentences, checks the block CRC, and on
+failure advances by a single sentence instead of a whole block. A dropped or
+mangled sentence therefore costs one block, not the rest of the message.
 
 ---
 
@@ -115,20 +156,51 @@ Du hast eine geheime Nachricht. StegoComm:
 4. **kodiert jeden Block als unauffällige Sätze** — z.B. Wetter-/Funk-Smalltalk auf Deutsch oder Englisch — wobei die *Wortwahl* die Bits trägt,
 5. füllt Restbits mit schlüsselabgeleitetem **Zufalls-Padding**, damit Füllsätze keine verräterischen Muster wiederholen.
 
+Im Cover steht **nirgends ein Klartext-Header**. Blockindex und Block-CRC stecken
+in den Satz-Bits; die pro Nachricht konstanten Felder (Blockzahl, Parity-Zahl,
+Padlänge, Block-Nonce) liegen in einem **Manifest**, das selbst aus ganz normalen
+Cover-Sätzen besteht und mit einem schlüsselabgeleiteten Keystream verschleiert
+ist. Ohne Passphrase ist es von einem Nutzblock nicht zu unterscheiden. Das
+Manifest wird zweimal gesendet — am Anfang und am Ende, mit verschiedenen Nonces
+und daher völlig verschiedenem Wortlaut — damit der Verlust einer Stelle nicht
+die ganze Nachricht kostet.
+
+Im Profil `plain` besteht das Cover deshalb **ausschließlich aus Chat-Sätzen**.
+Das Profil `js8call` stellt jedem Abschnitt zusätzlich eine dekorative
+Rufzeichen-Zeile voran (`DE W1ABC MSG 3/14`), damit es nach Funkverkehr aussieht
+— sie trägt keinerlei Daten und wird beim Dekodieren übersprungen.
+
 Das Ergebnis sieht aus wie harmloses Geplauder (oder ein JS8Call-Funkspruch), transportiert aber eine verschlüsselte Nutzlast. Der Empfänger dreht alles zurück; eine Block-CRC erkennt beschädigte Blöcke und behandelt sie als Erasure, was die Parity bis zu ihrer Grenze repariert — darüber kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind (Selective-Repeat-ARQ).
 
 ### Der Glaubhaftigkeits-Regler
 
 Das Browser-Tool hat einen **Glaubhaftigkeits**-Regler, gespiegelt durch `--level 0..3` in der CLI:
 
-| Stufe | Wirkung | Bits pro Satz | Kompromiss |
-|---|---|---|---|
-| 0 | sehr glaubhaft | 8 | am natürlichsten, längster Cover |
-| 1 | glaubhaft | 13 | guter Kompromiss (Standard) |
-| 2 | knapp | 17 | kürzer, merklich gestelzt |
-| 3 | sehr knapp | 22 | kürzester, deutlich künstlich |
+Höhere Stufen hängen **keine** Nebensätze mehr an — das war der v3-Entwurf, und
+er ging nach hinten los: ein angehängter Nebensatz brachte ~5 Bit, kostete aber
+~20 Zeichen. Dadurch *sank* die Dichte pro Zeichen mit steigender Stufe, und
+„sehr knapp" erzeugte einen **längeren** Cover als „sehr glaubhaft". In v4 bleibt
+der Satz kurz und die **Wortlisten werden breiter** (8/16/32 Optionen je Slot =
+3/4/5 Bit); Stufe 3 fällt zusätzlich in den Telegrammstil ohne Artikel und Verb.
+Die Glaubhaftigkeit sinkt jetzt durch ungewöhnliche Wortwahl, nicht durch Länge
+— und die Zeichenzahl fällt endlich mit der Stufe.
 
-Der Empfänger muss Sprache und Stufe **nicht** vorher kennen — beides steht im Block-Header und wird beim Decode automatisch erkannt.
+Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, `plain`, 2 Parity-Blöcke):
+
+| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Bit/Zeichen |
+|---|---|---|---|---|---|
+| 0 | sehr glaubhaft | 10 | 104 | 2649 | 0,39 |
+| 1 | glaubhaft (Standard) | 13 | 89 | 2272 | 0,51 |
+| 2 | knapp | 20 | 52 | 1934 | 0,54 |
+| 3 | sehr knapp | 28 | 39 | 1507 | 0,72 |
+
+Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stufe
+halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
+Nachrichten zum Einfügen.
+
+Der Empfänger muss Sprache und Stufe **nicht** vorher kennen. Beides steht
+nirgends im Cover — der Decoder probiert schlicht alle 8 Kombinationen aus
+Sprache und Stufe durch, die CRC16 des Manifests entscheidet.
 
 ### Installation
 
@@ -165,6 +237,10 @@ python3 stegocomms.py selftest
 python3 stegocomms.py encode --pass "gemeinsame-passphrase" --lang de --level 1 \
         "Treffen Sonntag 18 Uhr am alten Hafen"
 
+# ... als reiner Chat-Text, ganz ohne Rufzeichen-Deko
+python3 stegocomms.py encode --pass "gemeinsame-passphrase" --profile plain \
+        --lang de --level 1 "Treffen Sonntag 18 Uhr am alten Hafen"
+
 # Cover-Text von stdin dekodieren
 python3 stegocomms.py decode --pass "gemeinsame-passphrase"    # einfügen, dann Strg-D
 ```
@@ -176,11 +252,57 @@ python3 stegocomms.py decode --pass "gemeinsame-passphrase"    # einfügen, dann
 ```
 Klartext → deflate → AES-256-GCM(iv‖Chiffretext‖Tag)
          → 8-Byte-Datenblöcke (+ R Cauchy/Reed-Solomon-Parity-Blöcke)
-         → je Block: 64 Nutzbits → Cover-Sätze (variable Dichte)
+         → je Block: idx‖Nutzlast‖CRC8 (80 Bit), mit Keystream verschleiert
+         → Cover-Sätze (variable Dichte) + je ein Manifest an Anfang und Ende
          → Restbits mit schlüsselabgeleitetem Zufalls-Padding gefüllt
 ```
 
-Jede Schicht löst ein Problem: GCM = Vertraulichkeit + Integrität; Reed-Solomon = Verlust-/Fehlerkorrektur ohne Rückfrage; die Grammatik = die Tarnung; Zufalls-Padding = entfernt statistische Verräter.
+Jede Schicht löst ein Problem: GCM = Vertraulichkeit + Integrität; Reed-Solomon = Verlust-/Fehlerkorrektur ohne Rückfrage; die Grammatik = die Tarnung; Zufalls-Padding = entfernt statistische Verräter; das verschleierte Manifest = Rahmung ohne sichtbaren Header.
+
+Weil es keine Header-Zeilen mehr gibt, an denen man sich neu ausrichten könnte,
+schiebt der Decoder ein Fenster über den Text: er liest *n* Sätze, prüft die
+Block-CRC und rückt bei Misserfolg nur um **einen** Satz weiter statt um einen
+ganzen Block. Ein verlorener oder verstümmelter Satz kostet damit einen Block,
+nicht den Rest der Nachricht.
+
+---
+
+## Wire format v4 / Wire-Format v4
+
+The current wire format is **v4**. It differs from v3 in three ways: the plaintext
+per-block header is gone (framing now lives in the covert channel plus a masked
+manifest), the believability levels trade density for *word choice* instead of
+sentence length, and German nouns carry their correct article (`der Kaffee`
+instead of v3's blanket `das kaffee`). The PBKDF2 salt changed to
+`stegocomm/v4/pbkdf2`, so **v3 covers cannot be decoded by v4** — the format is
+incompatible anyway. Both implementations were changed in lockstep and verified
+against each other in both directions across all 4 levels × 2 languages ×
+2 profiles.
+
+Das aktuelle Wire-Format ist **v4**. Unterschiede zu v3: der Klartext-Header pro
+Block ist weg (die Rahmung steckt jetzt im verdeckten Kanal plus einem
+verschleierten Manifest), die Glaubhaftigkeitsstufen erkaufen Dichte über die
+*Wortwahl* statt über die Satzlänge, und deutsche Nomen tragen ihren richtigen
+Artikel (`der Kaffee` statt des pauschalen `das kaffee` aus v3). Das PBKDF2-Salt
+heißt jetzt `stegocomm/v4/pbkdf2`, **v3-Cover lassen sich mit v4 also nicht
+entschlüsseln** — das Format ist ohnehin inkompatibel.
+
+### Known limits / Bekannte Grenzen
+
+- A message is capped at 254 blocks, i.e. roughly 2 kB of ciphertext.
+  Nachrichten sind auf 254 Blöcke begrenzt, also rund 2 kB Chiffretext.
+- Every sentence at a given level follows one template, so a long cover is
+  structurally repetitive. That was true in v3 as well and is a believability
+  ceiling, not a correctness problem.
+  Alle Sätze einer Stufe folgen einer Schablone, ein langer Cover wirkt daher
+  strukturell repetitiv — das galt für v3 genauso und ist eine Grenze der
+  Glaubhaftigkeit, kein Fehler.
+- Block detection rests on an 8-bit CRC, so a random sentence run has a ~1/256
+  chance of being mistaken for a block. A false hit corrupts the payload and the
+  GCM tag then rejects the message rather than returning wrong plaintext.
+  Die Blockerkennung hängt an einer 8-Bit-CRC; eine zufällige Satzfolge wird mit
+  ~1/256 fälschlich als Block gelesen. Ein Fehltreffer verdirbt die Nutzlast, das
+  GCM-Tag weist die Nachricht dann ab statt falschen Klartext zu liefern.
 
 ---
 

@@ -209,8 +209,12 @@
 
       <div class="note">
         * grobe Schätzung für JS8Call-Normalmodus (~0,9 Zeichen/s). Bei Plain/WhatsApp
-        ist die Übertragung praktisch sofort. Alles — Verschlüsselung (AES-256-GCM),
-        Cover-Erzeugung und der Round-Trip — läuft rein im Browser (WebCrypto), ohne Server.
+        ist die Übertragung praktisch sofort. Die Sendedauer hängt an den Zeichen, nicht
+        an den Sätzen — der Glaubhaftigkeits-Regler verkürzt sie also wirklich.
+        Im Kanal <b>Plain</b> besteht das Cover ausschließlich aus Chat-Sätzen; die
+        Rufzeichen-Zeile im Kanal JS8Call ist reine Deko und trägt keine Daten.
+        Alles — Verschlüsselung (AES-256-GCM), Cover-Erzeugung und der Round-Trip —
+        läuft rein im Browser (WebCrypto), ohne Server.
       </div>
     </div>
   </div>
@@ -238,13 +242,18 @@
 "use strict";
 /* =====================================================================
    StegoComm — Cover Studio (self-contained, in-browser encode + decode)
+   Wire-Format v4, byte-kompatibel zu stegocomms.py.
    Pipeline:  Klartext -> deflate -> AES-256-GCM (iv||ct||tag)
               -> in 8-Byte-Blöcke -> +R Cross-Block-Parity (Reed-Solomon/GF256)
-              -> Bits pro Block in Cover-Sätze (variable Dichte je Regler)
+              -> je Block idx||Nutzlast||CRC8, mit Keystream verschleiert
+              -> Cover-Sätze (variable Dichte je Regler), dazu je ein Manifest
+                 an Anfang und Ende
               -> Rest-Bits mit schlüsselabgeleitetem Zufalls-Padding gefüllt
    Decode geht rückwärts; per-Block-CRC erkennt Beschädigung -> als Erasure
    behandelt und via Parity ohne Nachfrage rekonstruiert (bis zur Parity-Grenze),
-   sonst NACK mit fehlenden Blöcken.
+   sonst NACK mit fehlenden Blöcken.  Es gibt KEINEN Klartext-Header: der
+   Decoder schiebt ein Fenster über den Text und richtet sich per CRC neu aus.
+   Selbsttest in der Konsole:  await selftest()
    ===================================================================== */
 
 const CHUNK = 8;                 // Byte pro Block
@@ -289,43 +298,98 @@ function crc16(bytes){ let c=0xffff; for(const b of bytes){ c^=b<<8;
   for(let i=0;i<8;i++) c=(c&0x8000)?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff; } return c&0xffff; }
 
 /* ---------------------------------------------------- Grammatiken DE/EN
-   Jede Wortliste hat exakt 2/4/8 Einträge -> 1/2/3 Bit, reversibel dekodierbar. */
+   Wortlisten sind nach Gebräuchlichkeit sortiert; eine Stufe nutzt jeweils das
+   PRÄFIX der Länge 2^k (8/16/32 Einträge -> 3/4/5 Bit je Slot). Stufe 0 sieht
+   also nur die häufigsten, unauffälligsten Wörter, Stufe 3 die ganze Liste.
+   Nomen tragen ihren Artikel mit; die Slots b1/b2 rendern die bloße Form
+   (alles nach dem ersten Leerzeichen) für den Telegrammstil.
+   MUSS mit den POOLS/TEMPLATES in stegocomms.py identisch bleiben. */
 const POOLS = {
-  en:{
-    adv:["well","so","anyway","also"],
-    noun:["weather","signal","band","rig","coffee","garden","antenna","traffic"],
-    adj:["good","fine","poor","strong","quiet","noisy","steady","clear"],
-    adj2:["warm","cool","calm","windy","bright","cloudy","dry","damp"],
-    noun2:["news","plan","crew","path","gear","tower","wire","shack"],
-    adj3:["ready","late","close","set","open","slow","near","short"],
-    adv2:["today","later","soon","yet"],
-    adj4:["stable","tough","fresh","flat","light","dense","firm","mild"],
-    end:["here","now","again","still"],
-  },
   de:{
-    adv:["naja","also","tja","ansonsten"],
-    noun:["wetter","signal","band","funk","kaffee","garten","antenne","verkehr"],
-    adj:["gut","fein","mau","stark","ruhig","laut","stetig","klar"],
-    adj2:["warm","kuehl","still","windig","hell","trueb","trocken","feucht"],
-    noun2:["plan","nachbar","kollege","weg","empfang","turm","draht","huette"],
-    adj3:["bereit","spaet","nah","fertig","offen","langsam","knapp","matt"],
-    adv2:["heute","spaeter","gleich","wohl"],
-    adj4:["stabil","zaeh","frisch","flach","leicht","dicht","fest","mild"],
-    end:["hier","jetzt","wieder","noch"],
+    N1:["das wetter","das signal","das band","der funk",
+        "der kaffee","der garten","die antenne","der verkehr",
+        "das licht","der himmel","das radio","das netz",
+        "der wind","das dach","der markt","der weg",
+        "der zug","der hof","der ofen","der keller",
+        "der boden","der strom","der nebel","der regen",
+        "der frost","der mond","das feld","das ufer",
+        "das tal","der teich","die halle","die kueche"],
+    N2:["der plan","der nachbar","der kollege","der empfang",
+        "der turm","der draht","die huette","die leitung",
+        "der schuppen","der zaun","der schalter","die kiste",
+        "die lampe","der schlauch","der eimer","der korb",
+        "der stecker","die kette","der riegel","der deckel",
+        "die schaufel","der hammer","die leiter","der pfosten",
+        "der bogen","die schiene","der knoten","der rahmen",
+        "die klappe","der spiegel","die tuer","der kasten"],
+    A1:["gut","fein","mau","stark","ruhig","laut","stetig","klar",
+        "matt","zaeh","frisch","flach","dicht","fest","mild","rau",
+        "schwach","hart","weich","glatt","steil","eng","breit","tief",
+        "hoch","kurz","lang","dumpf","spitz","grob","zart","schroff"],
+    A2:["warm","kuehl","still","windig","hell","trueb","trocken","feucht",
+        "sonnig","wolkig","kalt","lau","diesig","klamm","schwuel","frostig"],
+    A3:["bereit","spaet","nah","fertig","offen","langsam","knapp","leer",
+        "voll","frei","sicher","locker","straff","schief","gerade","sauber",
+        "neu","alt","heil","krumm","rund","eckig","leicht","schwer",
+        "hohl","massiv","roh","blank","glatt","stumpf","warm","kalt"],
+    END:["hier","jetzt","wieder","noch","heute","gleich","spaeter","morgen",
+         "abends","nachts","drinnen","draussen","oben","unten","vorn","hinten"],
+    ADV2:["gleich","spaeter","heute","morgen","abends","nachts","frueh","bald",
+          "jetzt","dann","kurz","lange","oft","selten","immer","nie"],
+  },
+  en:{
+    N1:["the weather","the signal","the band","the rig",
+        "the coffee","the garden","the antenna","the traffic",
+        "the light","the sky","the radio","the net",
+        "the wind","the roof","the market","the path",
+        "the train","the yard","the stove","the cellar",
+        "the floor","the power","the fog","the rain",
+        "the frost","the moon","the field","the shore",
+        "the valley","the pond","the hall","the kitchen"],
+    N2:["the plan","the neighbour","the colleague","the reception",
+        "the tower","the wire","the shack","the line",
+        "the shed","the fence","the switch","the crate",
+        "the lamp","the hose","the bucket","the basket",
+        "the plug","the chain","the latch","the lid",
+        "the shovel","the hammer","the ladder","the post",
+        "the arch","the rail","the knot","the frame",
+        "the flap","the mirror","the door","the box"],
+    A1:["good","fine","poor","strong","quiet","noisy","steady","clear",
+        "dull","tough","fresh","flat","dense","firm","mild","rough",
+        "weak","hard","soft","smooth","steep","narrow","wide","deep",
+        "high","short","long","muffled","sharp","coarse","tender","harsh"],
+    A2:["warm","cool","calm","windy","bright","cloudy","dry","damp",
+        "sunny","overcast","cold","mellow","hazy","clammy","muggy","frosty"],
+    A3:["ready","late","close","set","open","slow","tight","empty",
+        "full","free","safe","loose","taut","crooked","straight","clean",
+        "new","old","whole","bent","round","square","light","heavy",
+        "hollow","solid","raw","plain","smooth","blunt","warm","cold"],
+    END:["here","now","again","still","today","soon","later","tomorrow",
+         "tonight","outside","inside","upstairs","downstairs","ahead",
+         "behind","nearby"],
+    ADV2:["soon","later","today","tomorrow","tonight","overnight","early",
+          "shortly","now","then","briefly","long","often","rarely",
+          "always","never"],
   },
 };
+
+/* Slot-Name -> Wortliste. Ein "b"-Präfix rendert die artikellose Form. */
+const SLOT_POOL = {n1:"N1", b1:"N1", n2:"N2", b2:"N2",
+                   a1:"A1", a2:"A2", a3:"A3", end:"END", adv2:"ADV2"};
+
+/* {slot:anzahl} — anzahl ist die genutzte Präfixlänge, muss 2er-Potenz sein. */
 const TEMPLATES = {
-  en:[
-    "the {noun} is {adj} {end}",
-    "{adv} the {noun} is {adj} and {adj2} {end}",
-    "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}",
-    "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}, {adv2} it stays {adj4}",
-  ],
   de:[
-    "das {noun} ist {adj} {end}",
-    "{adv} das {noun} ist {adj} und {adj2} {end}",
-    "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}",
-    "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}, {adv2} bleibt es {adj4}",
+    "{n1:16} ist {a1:8} {end:8}",                              // 10 Bit
+    "{n1:32} ist {a1:16} {end:16}",                            // 13 Bit
+    "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                    // 20 Bit
+    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",     // 28 Bit
+  ],
+  en:[
+    "{n1:16} is {a1:8} {end:8}",
+    "{n1:32} is {a1:16} {end:16}",
+    "{n1:32} is {a1:32}, {n2:32} {a3:32}",
+    "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",
   ],
 };
 const NAMES = ["W1ABC","DL2XYZ","OH5QQ","VK3RT","G0MNP"];
@@ -336,31 +400,43 @@ const GRAMMARS = {};
   for(const lang of ["de","en"]){
     const pools=POOLS[lang];
     GRAMMARS[lang]=TEMPLATES[lang].map(tpl=>{
-      const order=[]; let m; const re=/\{(\w+)\}/g;
-      while((m=re.exec(tpl))) order.push(m[1]);
-      let bits=0; order.forEach(n=>bits+=Math.log2(pools[n].length));
-      // Regex zum Parsen
-      let pat="", last=0; re.lastIndex=0;
-      while((m=re.exec(tpl))){ pat+=escapeRe(tpl.slice(last,m.index));
-        pat+="("+pools[m[1]].map(escapeRe).join("|")+")"; last=m.index+m[0].length; }
+      const slots=[]; let bits=0, pat="", last=0;
+      const re=/\{(\w+):(\d+)\}/g; let m;
+      while((m=re.exec(tpl))){
+        const name=m[1], cnt=+m[2];
+        let opts=pools[SLOT_POOL[name]].slice(0,cnt);
+        if(opts.length!==cnt || (cnt & (cnt-1))) throw new Error(`Wortliste ${name}:${cnt} (${lang}) unbrauchbar`);
+        if(name.startsWith("b")) opts=opts.map(w=>w.slice(w.indexOf(" ")+1));
+        if(new Set(opts).size!==cnt) throw new Error(`Wortliste ${name}:${cnt} (${lang}) hat Duplikate`);
+        const width=Math.round(Math.log2(cnt));
+        slots.push({opts, width}); bits+=width;
+        pat+=escapeRe(tpl.slice(last,m.index));
+        // längste Alternative zuerst -> kein vorzeitiger Teiltreffer
+        const alts=opts.slice().sort((a,b)=>b.length-a.length);
+        pat+="("+alts.map(escapeRe).join("|")+")";
+        last=m.index+m[0].length;
+      }
       pat+=escapeRe(tpl.slice(last));
-      return {tpl, pools, order, bits, _re:new RegExp("^"+pat+"$")};
+      return {tpl, slots, bits, _re:new RegExp("^"+pat+"$")};
     });
   }
 })();
 
 function renderSentence(lv, bits){
-  let idx=0; const w={};
-  for(const name of lv.order){ const opts=lv.pools[name]; const width=Math.log2(opts.length);
-    let v=0; for(let b=0;b<width;b++) v=(v<<1)|bits[idx++]; w[name]=opts[v]; }
-  return lv.tpl.replace(/\{(\w+)\}/g,(_,k)=>w[k]);
+  let idx=0; const words=[];
+  for(const s of lv.slots){
+    let v=0; for(let b=0;b<s.width;b++) v=(v<<1)|bits[idx++];
+    words.push(s.opts[v]);
+  }
+  let k=0;
+  return lv.tpl.replace(/\{(\w+):(\d+)\}/g, ()=>words[k++]);
 }
 function parseSentence(lv, line){
   const m=lv._re.exec(line.trim().replace(/[.\s]+$/,""));
   if(!m) return null;
   const bits=[];
-  lv.order.forEach((name,i)=>{ const opts=lv.pools[name]; const v=opts.indexOf(m[i+1]);
-    const width=Math.log2(opts.length); for(let b=width-1;b>=0;b--) bits.push((v>>b)&1); });
+  lv.slots.forEach((s,i)=>{ const v=s.opts.indexOf(m[i+1]);
+    for(let b=s.width-1;b>=0;b--) bits.push((v>>b)&1); });
   return bits;
 }
 
@@ -377,7 +453,7 @@ async function deriveKey(pass){
   if(_keyCache.pass===pass && _keyCache.obj) return _keyCache.obj;
   const enc=new TextEncoder();
   const base=await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits","deriveKey"]);
-  const salt=enc.encode("stegocomm/v3/pbkdf2");
+  const salt=enc.encode("stegocomm/v4/pbkdf2");
   const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"}, base, 256);
   const raw=new Uint8Array(bits);
   const akey=await crypto.subtle.importKey("raw", raw, {name:"AES-GCM"}, false, ["encrypt","decrypt"]);
@@ -396,103 +472,220 @@ async function decryptMsg(ct, keyObj){
   const comp=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv}, keyObj.akey, body));
   return new TextDecoder().decode(await inflate(comp));
 }
-async function keystream(raw, idx, nbytes){
+/* SHA-256-Keystream:  seed = raw || tag(2 Byte) || extra || counter */
+async function ksBytes(raw, tag, extra, nbytes){
+  const t=new TextEncoder().encode(tag);
   const out=new Uint8Array(nbytes); let off=0, ctr=0;
   while(off<nbytes){
-    const seed=new Uint8Array(raw.length+4); seed.set(raw,0);
-    seed[raw.length]=0x50; seed[raw.length+1]=0x41; seed[raw.length+2]=idx&0xff; seed[raw.length+3]=ctr&0xff;
+    const seed=new Uint8Array(raw.length+t.length+extra.length+1);
+    seed.set(raw,0); seed.set(t,raw.length); seed.set(extra,raw.length+t.length);
+    seed[seed.length-1]=ctr&0xff;
     const h=new Uint8Array(await crypto.subtle.digest("SHA-256", seed));
     const take=Math.min(h.length, nbytes-off); out.set(h.subarray(0,take), off); off+=take; ctr++;
   }
   return out;
 }
+const ksManifest=(raw,mnonce,n)=>ksBytes(raw,"SM",mnonce,n);
+/* Verschleiert den Blockrahmen. Hängt bewusst NICHT vom Blockindex ab —
+   der steckt ja im Rahmen und ist beim Dekodieren zunächst unbekannt. */
+const ksBlock=(raw,bnonce,n)=>ksBytes(raw,"SB",bnonce,n);
+/* Füllbits am Satzende; pro Block verschieden, wird beim Dekodieren ignoriert. */
+const ksPad=(raw,bnonce,idx,n)=>ksBytes(raw,"SP",Uint8Array.from([...bnonce, idx&0xff]),n);
+/* ---------------------------------------------------- Encode / Decode
+   Wire-Format v4: kein Klartext-Header mehr. Blockindex und Block-CRC stecken
+   in den Satz-Bits; die pro Nachricht konstanten Felder (K, R, Padlänge,
+   Block-Nonce) liegen in einem MANIFEST, das selbst aus normalen Cover-Sätzen
+   besteht und mit einem schlüsselabgeleiteten Keystream verschleiert ist.
+   Es wird zweimal gesendet (Anfang + Ende, verschiedene Nonces und daher
+   völlig verschiedener Wortlaut), damit der Verlust einer Stelle nicht die
+   ganze Nachricht unlesbar macht. Sprache und Stufe stehen NICHT drin — der
+   Empfänger probiert die 8 Kombinationen durch, die CRC16 entscheidet. */
+const MNONCE_LEN=2, BNONCE_LEN=2;
+const MANIFEST_PLAIN=1+1+1+BNONCE_LEN+2;   // K | R | Padlänge | bnonce | crc16 = 7
+const MANIFEST_LEN=MNONCE_LEN+MANIFEST_PLAIN;   // 9 Byte
+const MANIFEST_BITS=MANIFEST_LEN*8;             // 72
+const BLOCK_FRAME=1+CHUNK+1;               // idx | payload | crc8 = 10 Byte
+const FRAME_BITS=BLOCK_FRAME*8;            // 80
+const MAX_BLOCKS=254;                      // idx passt in 1 Byte, 255 bleibt frei
 
-/* ---------------------------------------------------- Encode / Decode */
 function applyProfile(txt, profile){ return profile==="js8call" ? txt.toUpperCase() : txt.toLowerCase(); }
+function xorBytes(a,b){ const o=new Uint8Array(a.length);
+  for(let i=0;i<a.length;i++) o[i]=a[i]^b[i]; return o; }
 
-async function renderBlock(idx, tot, K, ctlen, level, lang, dataBytes, raw){
-  const lv=GRAMMARS[lang][level];
-  const bits=bytesToBits(dataBytes);                 // 64
-  const sPerBlock=Math.ceil(BLOCK_BITS/lv.bits);
-  const need=sPerBlock*lv.bits-BLOCK_BITS;
-  if(need>0){ const ks=await keystream(raw, idx, Math.ceil(need/8));
-    const kb=bytesToBits(ks).slice(0,need); for(const b of kb) bits.push(b); }
-  const ck=crc16(dataBytes)&0xff;
-  const header=`DE ${NAMES[idx%NAMES.length]} MSG ${idx}/${tot} K ${K} SZ ${ctlen} LV ${level} CK ${ck}`;
-  const lines=[]; for(let i=0;i<sPerBlock;i++) lines.push(renderSentence(lv, bits.slice(i*lv.bits,(i+1)*lv.bits)));
-  return {header, lines};
+async function buildManifest(raw, K, R, ctlen, bnonce, mnonce){
+  const plain=new Uint8Array(MANIFEST_PLAIN);
+  plain[0]=K; plain[1]=R; plain[2]=(K*CHUNK-ctlen)&7; plain.set(bnonce,3);
+  const c=crc16(plain.subarray(0,MANIFEST_PLAIN-2));
+  plain[MANIFEST_PLAIN-2]=(c>>8)&0xff; plain[MANIFEST_PLAIN-1]=c&0xff;
+  const out=new Uint8Array(MANIFEST_LEN);
+  out.set(mnonce,0);
+  out.set(xorBytes(plain, await ksManifest(raw,mnonce,MANIFEST_PLAIN)), MNONCE_LEN);
+  return out;
+}
+async function parseManifest(raw, buf){
+  if(buf.length<MANIFEST_LEN) return null;
+  const mnonce=buf.subarray(0,MNONCE_LEN);
+  const plain=xorBytes(buf.subarray(MNONCE_LEN,MANIFEST_LEN),
+                       await ksManifest(raw,mnonce,MANIFEST_PLAIN));
+  const c=(plain[MANIFEST_PLAIN-2]<<8)|plain[MANIFEST_PLAIN-1];
+  if(crc16(plain.subarray(0,MANIFEST_PLAIN-2))!==c) return null;
+  const K=plain[0], R=plain[1], pad=plain[2];
+  const bnonce=plain.subarray(3,3+BNONCE_LEN);
+  const ctlen=K*CHUNK-pad;
+  if(K===0 || K+R>MAX_BLOCKS || pad>7 || ctlen<=0) return null;
+  return {K,R,ctlen,bnonce};
+}
+
+async function buildFrame(raw, idx, payload, bnonce){
+  const plain=new Uint8Array(BLOCK_FRAME);
+  plain[0]=idx; plain.set(payload,1);
+  plain[BLOCK_FRAME-1]=crc16(plain.subarray(0,1+CHUNK))&0xff;
+  return xorBytes(plain, await ksBlock(raw,bnonce,BLOCK_FRAME));
+}
+async function parseFrame(raw, buf, bnonce){
+  const plain=xorBytes(buf.subarray(0,BLOCK_FRAME), await ksBlock(raw,bnonce,BLOCK_FRAME));
+  if((crc16(plain.subarray(0,1+CHUNK))&0xff)!==plain[BLOCK_FRAME-1]) return null;
+  return {idx:plain[0], payload:plain.subarray(1,1+CHUNK)};
+}
+
+function sentencesFor(lv, nbits){ return Math.ceil(nbits/lv.bits); }
+/* Bitfeld -> Sätze; Rest der letzten Satzkapazität mit pad auffüllen. */
+function renderRun(lv, frame, nbits, pad){
+  let bits=bytesToBits(frame).slice(0,nbits);
+  const n=sentencesFor(lv,nbits), need=n*lv.bits-nbits;
+  if(need>0) bits=bits.concat(bytesToBits(pad).slice(0,need));
+  const out=[];
+  for(let i=0;i<n;i++) out.push(renderSentence(lv, bits.slice(i*lv.bits,(i+1)*lv.bits)));
+  return out;
 }
 
 async function encode(secret, keyObj, lang, profile, level, parity){
+  const raw=keyObj.raw, lv=GRAMMARS[lang][level];
   const ct=await encryptMsg(secret, keyObj);
   const ctlen=ct.length;
-  const padded=new Uint8Array(Math.ceil(ctlen/CHUNK)*CHUNK); padded.set(ct);
-  const K=padded.length/CHUNK;
-  const data=[]; for(let i=0;i<K;i++) data.push(padded.slice(i*CHUNK,(i+1)*CHUNK));
-  const R=Math.min(parity, Math.max(0,255-K));
+  const K=Math.ceil(ctlen/CHUNK);
+  if(K>MAX_BLOCKS) throw new Error(`Nachricht zu lang — ${K} Datenblöcke, erlaubt sind ${MAX_BLOCKS}.`);
+  const padded=new Uint8Array(K*CHUNK); padded.set(ct,0);
+  const data=[]; for(let i=0;i<K;i++) data.push(padded.subarray(i*CHUNK,(i+1)*CHUNK));
+  const R=Math.min(parity, Math.max(0, MAX_BLOCKS-K));
   const parityBlocks=[];
-  if(R>0){
-    const P=cauchy(R,K);
+  if(R>0){ const P=cauchy(R,K);
     for(let r=0;r<R;r++){ const pb=new Uint8Array(CHUNK);
-      for(let j=0;j<CHUNK;j++){ let acc=0; for(let i=0;i<K;i++) acc^=gmul(P[r][i], data[i][j]); pb[j]=acc; }
-      parityBlocks.push(pb); }
+      for(let j=0;j<CHUNK;j++){ let acc=0; for(let i=0;i<K;i++) acc^=gmul(P[r][i],data[i][j]); pb[j]=acc; }
+      parityBlocks.push(pb); } }
+  const allb=data.concat(parityBlocks), tot=allb.length;
+
+  const bnonce=crypto.getRandomValues(new Uint8Array(BNONCE_LEN));
+  const padBytes=Math.ceil(lv.bits/8)+1;
+  const manifestSection=async()=>{
+    const mnonce=crypto.getRandomValues(new Uint8Array(MNONCE_LEN));
+    const buf=await buildManifest(raw,K,R,ctlen,bnonce,mnonce);
+    const pad=await ksPad(raw,bnonce,0xff,padBytes);
+    return {header:`DE ${NAMES[0]} CQ CQ`, lines:renderRun(lv,buf,MANIFEST_BITS,pad)};
+  };
+  const sections=[await manifestSection()];
+  for(let i=0;i<tot;i++){
+    const buf=await buildFrame(raw,i,allb[i],bnonce);
+    const pad=await ksPad(raw,bnonce,i,padBytes);
+    sections.push({header:`DE ${NAMES[i%NAMES.length]} MSG ${i}/${tot}`,
+                   lines:renderRun(lv,buf,FRAME_BITS,pad), block:i});
   }
-  const all=data.concat(parityBlocks); const tot=all.length;
-  const blocks=[];
-  for(let i=0;i<tot;i++) blocks.push(await renderBlock(i,tot,K,ctlen,level,lang,all[i],keyObj.raw));
-  return {blocks, K, R, tot, ctlen, level, lang, profile};
+  sections.push(await manifestSection());
+  return {sections, K, R, tot, ctlen, level, lang, profile};
 }
 
-function coverToText(enc){
+/* Im Profil js8call bekommt jeder Abschnitt eine dekorative Rufzeichen-Zeile —
+   sie trägt KEINE Daten und wird beim Dekodieren übersprungen. Im Profil plain
+   entfällt sie, das Cover besteht dann ausschließlich aus Chat-Sätzen. */
+function coverToText(enc, sections){
   const parts=[];
-  for(const b of enc.blocks){
-    parts.push(applyProfile(b.header, enc.profile));
-    for(const l of b.lines) parts.push(applyProfile(l, enc.profile));
+  for(const s of (sections||enc.sections)){
+    if(enc.profile==="js8call" && s.header) parts.push(applyProfile(s.header, enc.profile));
+    for(const l of s.lines) parts.push(applyProfile(l, enc.profile));
   }
   return parts.join("\n");
 }
 
-const HEADER_RE=/^de (\S+) msg (\d+)\/(\d+) k (\d+) sz (\d+) lv (\d+) ck (\d+)$/;
-async function decode(coverText, keyObj){
-  const lines=coverText.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length)
-                       .map(l=>l.toLowerCase().replace(/[.\s]+$/,""));
-  let i=0, tot=null, K=null, ctlen=null, lang=null; const found={};
-  while(i<lines.length){
-    const mh=HEADER_RE.exec(lines[i]);
-    if(!mh){ i++; continue; }
-    const idx=+mh[2]; tot=+mh[3]; K=+mh[4]; ctlen=+mh[5]; const level=+mh[6], ck=+mh[7];
-    i++;
-    if(lang===null){ for(const L of ["de","en"]){ const lv=GRAMMARS[L][level];
-      if(lv && lv._re.test(lines[i]||"")){ lang=L; break; } } }
-    const lv=(lang!==null)?GRAMMARS[lang][level]:null;
-    if(!lv){ continue; }
-    const sPerBlock=Math.ceil(BLOCK_BITS/lv.bits);
-    let bits=[], good=true;
-    for(let s=0;s<sPerBlock;s++){ const pb=parseSentence(lv, lines[i]||""); i++;
-      if(pb===null){ good=false; break; } bits=bits.concat(pb); }
-    if(!good) continue;
-    const bytes=bitsToBytes(bits.slice(0,BLOCK_BITS));
-    if((crc16(bytes)&0xff)!==ck) continue;         // beschädigt -> als Erasure behandeln
-    found[idx]=bytes;
+function normLines(t){
+  return t.split(/\r?\n/).filter(l=>l.trim().length)
+          .map(l=>l.trim().toLowerCase().replace(/[.\s]+$/,""));
+}
+
+/* Probiert alle (Sprache, Stufe) durch und schiebt ein Fenster über den Text;
+   die CRC16 im Manifest entscheidet. */
+async function findManifest(raw, lines){
+  const n=lines.length;
+  for(const lang of ["de","en"]){
+    for(let level=0; level<GRAMMARS[lang].length; level++){
+      const lv=GRAMMARS[lang][level];
+      const span=sentencesFor(lv, MANIFEST_BITS);
+      let hit=null; const spans=[];
+      let i=0;
+      while(i+span<=n){
+        let bits=[], ok=true;
+        for(let s=0;s<span;s++){ const pb=parseSentence(lv, lines[i+s]);
+          if(pb===null){ ok=false; break; } bits=bits.concat(pb); }
+        if(ok){
+          const man=await parseManifest(raw, bitsToBytes(bits.slice(0,MANIFEST_BITS)));
+          if(man){ if(!hit) hit=man; spans.push([i,i+span]); i+=span; continue; }
+        }
+        i++;
+      }
+      if(hit) return {man:hit, lang, level, spans};
+    }
   }
-  if(tot===null||K===null) return {ok:false, error:"Kein gültiger Cover-Block erkannt."};
-  const R=tot-K;
+  return null;
+}
+
+async function decode(coverText, keyObj){
+  const raw=keyObj.raw;
+  const lines=normLines(coverText);
+  const f=await findManifest(raw, lines);
+  if(!f) return {ok:false, error:"Kein gültiges Manifest gefunden — falsche Passphrase oder kein Cover-Text."};
+  const {man, lang, level, spans}=f;
+  const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, tot=K+R;
+  const lv=GRAMMARS[lang][level];
+  const span=sentencesFor(lv, FRAME_BITS);
+
+  const blocked=new Set();
+  for(const [a,b] of spans) for(let x=a;x<b;x++) blocked.add(x);
+
+  const n=lines.length, found={};
+  let i=0;
+  while(i+span<=n){
+    if(blocked.has(i)){ i++; continue; }
+    let bits=[], ok=true;
+    for(let s=0;s<span;s++){
+      if(blocked.has(i+s)){ ok=false; break; }
+      const pb=parseSentence(lv, lines[i+s]);
+      if(pb===null){ ok=false; break; }
+      bits=bits.concat(pb);
+    }
+    if(ok){
+      const fr=await parseFrame(raw, bitsToBytes(bits.slice(0,FRAME_BITS)), bnonce);
+      if(fr && fr.idx<tot && !(fr.idx in found)){ found[fr.idx]=fr.payload; i+=span; continue; }
+    }
+    i++;
+  }
+
   const dataMissing=[]; for(let d=0;d<K;d++) if(!(d in found)) dataMissing.push(d);
   const present=Object.keys(found).map(Number).sort((a,b)=>a-b);
-
-  let dataBlocks;
+  let dataBlocks, recovered;
   if(dataMissing.length===0){
-    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(found[d]);
+    dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(found[d]); recovered=false;
   } else if(present.length>=K){
-    const P=cauchy(R,K);
-    const surv=present.slice(0,K);
+    const P=cauchy(R,K); const surv=present.slice(0,K);
     const A=surv.map(idx=> idx<K ? unit(idx,K) : P[idx-K]);
     const Ainv=matInv(A,K);
     if(!Ainv) return {ok:false, missing:dataMissing, tot, K, recovered:false,
                       error:"Rekonstruktion fehlgeschlagen."};
     dataBlocks=[]; for(let d=0;d<K;d++) dataBlocks.push(new Uint8Array(CHUNK));
-    for(let j=0;j<CHUNK;j++){ const rhs=surv.map(idx=>found[idx][j]);
-      for(let d=0;d<K;d++){ let acc=0; for(let m=0;m<K;m++) acc^=gmul(Ainv[d][m], rhs[m]); dataBlocks[d][j]=acc; } }
+    for(let j=0;j<CHUNK;j++){
+      const rhs=surv.map(idx=>found[idx][j]);
+      for(let d=0;d<K;d++){ let acc=0;
+        for(let m=0;m<K;m++) acc^=gmul(Ainv[d][m],rhs[m]); dataBlocks[d][j]=acc; }
+    }
+    recovered=true;
   } else {
     return {ok:false, missing:dataMissing, tot, K, recovered:false};
   }
@@ -500,7 +693,7 @@ async function decode(coverText, keyObj){
   const padded=new Uint8Array(K*CHUNK); dataBlocks.forEach((b,d)=>padded.set(b, d*CHUNK));
   const ct=padded.slice(0,ctlen);
   try{ const msg=await decryptMsg(ct, keyObj);
-    return {ok:true, message:msg, tot, K, recovered: dataMissing.length>0, R}; }
+    return {ok:true, message:msg, tot, K, recovered, R, lang, level}; }
   catch(e){ return {ok:false, tot, K,
     error:"Entschlüsselung fehlgeschlagen — falsche Passphrase oder zu viele Datenfehler."}; }
 }
@@ -512,10 +705,10 @@ let lastCover="";
 function levelFromPlaus(p){ return p<25?0 : p<50?1 : p<75?2 : 3; }
 const LEVEL_LABEL=["sehr glaubhaft","glaubhaft","knapp","sehr knapp"];
 const LEVEL_DESC=[
-  "Ein Satz trägt wenig Payload — der Text klingt am natürlichsten, wird aber am längsten.",
-  "Guter Kompromiss: klingt noch wie normales Geplauder, moderate Länge.",
-  "Mehr Bits pro Satz — der Text wird kürzer, klingt aber merklich gestelzter.",
-  "Maximale Dichte: kürzester Cover, klingt aber deutlich künstlich (viele Nebensätze)."
+  "Nur die alltäglichsten Wörter — klingt am natürlichsten, braucht aber die meisten Sätze.",
+  "Guter Kompromiss: etwas ungewöhnlichere Wortwahl, spürbar weniger Text.",
+  "Breite Wortlisten und knappe Halbsätze ohne Verb — merklich gestelzt, deutlich kürzer.",
+  "Telegrammstil ohne Artikel und Verb: kürzester Cover, klingt aber klar künstlich."
 ];
 const $=id=>document.getElementById(id);
 
@@ -545,19 +738,22 @@ async function recompute(){
 
   lastCover=coverToText(enc);
 
-  // Zählungen
+  // Zählungen (Deko-Zeile zählt in die Zeichen, aber nicht als Trägersatz)
   let totalSent=0, totalChars=0;
-  for(const b of enc.blocks){ totalSent+=1+b.lines.length;
-    totalChars+=b.header.length+1; for(const l of b.lines) totalChars+=l.length+1; }
-
-  // Vorschau (erste 6 Blöcke), Rest zusammengefasst
-  const MAXSHOW=6; let html="", shown=0;
-  for(let i=0;i<enc.blocks.length && i<MAXSHOW;i++){
-    const b=enc.blocks[i];
-    html+='<span class="hdr">'+applyProfile(b.header,profile)+"</span>\n"
-        + b.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
+  for(const s of enc.sections){
+    totalSent+=s.lines.length;
+    if(profile==="js8call" && s.header) totalChars+=s.header.length+1;
+    for(const l of s.lines) totalChars+=l.length+1;
   }
-  if(enc.tot>shown) html+="\n… +"+(enc.tot-shown)+" weitere Blöcke — gesamt "+totalSent+" Sätze. Knopf „Vollständig kopieren“ liefert alles.";
+
+  // Vorschau (erste 6 Abschnitte), Rest zusammengefasst
+  const MAXSHOW=6; let html="", shown=0;
+  for(const s of enc.sections){
+    if(shown>=MAXSHOW) break;
+    if(profile==="js8call" && s.header) html+='<span class="hdr">'+applyProfile(s.header,profile)+"</span>\n";
+    html+=s.lines.map(l=>applyProfile(l,profile)).join("\n")+"\n"; shown++;
+  }
+  if(enc.sections.length>shown) html+="\n… +"+(enc.sections.length-shown)+" weitere Abschnitte — gesamt "+totalSent+" Sätze. Knopf „Vollständig kopieren“ liefert alles.";
   cover.innerHTML=html;
 
   $("sentCount").textContent=totalSent.toLocaleString("de");
@@ -623,29 +819,50 @@ $("loopBtn").addEventListener("click",()=>{ $("rx").value=lastCover; runDecode()
 /* ---- Self-Test (window.selftest() in der Konsole) ---- */
 window.selftest=async function(){
   const key=await deriveKey("test-passphrase");
-  const cases=[["de",1,2],["en",0,2],["de",3,1]];
-  for(const [lang,level,par] of cases){
+  const cases=[["de",1,2,"js8call"],["en",0,2,"plain"],["de",3,1,"plain"],["en",2,2,"js8call"]];
+  let okAll=true;
+  for(const [lang,level,par,profile] of cases){
     const secret="Treffen Sonntag 18 Uhr am alten Hafen — "+lang+"/"+level;
-    const enc=await encode(secret,key,lang,"js8call",level,par);
+    const enc=await encode(secret,key,lang,profile,level,par);
     const cover=coverToText(enc);
     const r0=await decode(cover,key);
-    console.log(`[${lang} L${level} P${par}] sauber:`, r0.ok, "->", JSON.stringify(r0.message)===JSON.stringify(secret)?"MATCH":"MISMATCH: "+r0.message);
-    // R Blöcke entfernen -> via Parity ohne Nachfrage
-    const blk=cover.split("\n");
-    // Blöcke anhand Header gruppieren
-    const groups=[]; let cur=null;
-    for(const ln of blk){ if(/^DE /i.test(ln)){ if(cur)groups.push(cur); cur=[ln]; } else if(cur) cur.push(ln); }
-    if(cur)groups.push(cur);
-    const drop=new Set(); for(let d=0;d<par;d++) drop.add(d);       // erste par Blöcke weg
-    const lossy=groups.filter((_,gi)=>!drop.has(gi)).map(g=>g.join("\n")).join("\n");
-    const r1=await decode(lossy,key);
-    console.log(`   ${par} Blöcke weg -> ok:`, r1.ok, "via_parity:", r1.recovered, "msg:", r1.ok?(JSON.stringify(r1.message)===JSON.stringify(secret)?"MATCH":"MISMATCH"):r1.error);
-    const drop2=new Set(); for(let d=0;d<par+1;d++) drop2.add(d);   // par+1 weg -> NACK
-    const lossy2=groups.filter((_,gi)=>!drop2.has(gi)).map(g=>g.join("\n")).join("\n");
-    const r2=await decode(lossy2,key);
-    console.log(`   ${par+1} Blöcke weg -> ok:`, r2.ok, "missing:", r2.missing);
+    const clean=r0.ok && r0.message===secret && r0.lang===lang && r0.level===level;
+    console.log(`[${lang} L${level} P${par} ${profile}] sauber:`, r0.ok, "->",
+                r0.message===secret?"MATCH":"MISMATCH: "+r0.message,
+                `erkannt: ${r0.lang}/L${r0.level}`);
+    okAll&&=clean;
+
+    // par Datenblöcke weg -> via Parity ohne Nachfrage
+    const keep=enc.sections.filter(s=>s.block===undefined || s.block>=par);
+    const r1=await decode(coverToText(enc,keep),key);
+    const via=r1.ok && r1.recovered && r1.message===secret;
+    console.log(`   ${par} Blöcke weg -> ok:`, r1.ok, "via_parity:", r1.recovered,
+                "msg:", via?"MATCH":(r1.error||"MISMATCH"));
+    okAll&&=via;
+
+    // par+1 weg -> NACK
+    const keep2=enc.sections.filter(s=>s.block===undefined || s.block>=par+1);
+    const r2=await decode(coverToText(enc,keep2),key);
+    console.log(`   ${par+1} Blöcke weg -> ok:`, r2.ok, "nack:", r2.missing);
+    okAll&&=(!r2.ok && !!r2.missing);
+
+    // vorderes Manifest weg -> hinteres muss übernehmen
+    const r3=await decode(coverToText(enc,enc.sections.slice(1)),key);
+    console.log("   1. Manifest weg -> ok:", r3.ok, "msg:", r3.message===secret?"MATCH":(r3.error||"MISMATCH"));
+    okAll&&=(r3.ok && r3.message===secret);
+
+    // ein einzelner Satz mittendrin gelöscht -> Resync
+    const raw=cover.split("\n"); raw.splice(Math.floor(raw.length/2),1);
+    const r4=await decode(raw.join("\n"),key);
+    console.log("   1 Satz gelöscht -> ok:", r4.ok, "msg:", r4.message===secret?"MATCH":(r4.error||"NACK"));
+    okAll&&=(r4.ok && r4.message===secret);
   }
-  console.log("selftest fertig.");
+  const enc=await encode("geheim",key,"de","js8call",1,2);
+  const r5=await decode(coverToText(enc), await deriveKey("falsch"));
+  console.log("[falsche Passphrase] ok:", r5.ok, "->", r5.ok?"FEHLER":"korrekt abgelehnt");
+  okAll&&=!r5.ok;
+  console.log("selftest fertig:", okAll?"ALLES GRUEN":"FEHLER");
+  return okAll;
 };
 
 /* ---- Start ---- */

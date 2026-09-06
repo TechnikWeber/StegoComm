@@ -1,5 +1,5 @@
 """
-stegocomms.py -- Proof of Concept v3
+stegocomms.py -- Proof of Concept v4
 
 Verdeckter, verschluesselter Nachrichtenkanal ueber beliebige Text-Transporte.
 Diese Fassung ist BYTE-KOMPATIBEL zum Browser-Tool cover_studio.html:
@@ -11,14 +11,48 @@ Pipeline (Sender):
   Klartext -> zlib(deflate) -> AES-256-GCM (iv||ciphertext||tag)
     -> auf CHUNK-Vielfaches (Null-)padden -> K Datenbloecke
     -> +R Cross-Block-Parity (Reed-Solomon ueber GF(256), Cauchy-Matrix -> MDS)
-    -> Bits je Block in Cover-Saetze (variable Dichte je "level")
+    -> je Block: idx || payload || CRC8, mit Keystream verschleiert
+    -> Bits in Cover-Saetze (variable Dichte je "level")
     -> Rest-Bits mit schluesselabgeleitetem Zufalls-Padding gefuellt
 Empfaenger geht rueckwaerts; per-Block-CRC erkennt beschaedigte Bloecke und
 behandelt sie als Erasure -> bis zur Parity-Grenze OHNE Nachforderung
 rekonstruiert, darueber ein NACK mit den fehlenden Datenbloecken.
 
+NEU in v4 gegenueber v3
+-----------------------
+1. Kein Klartext-Header mehr.  v3 stellte jedem Block eine Zeile
+   "DE W1ABC MSG 0/12 K 10 SZ 74 LV 0 CK 8" voran -- in einem Chat-Transport
+   das mit Abstand auffaelligste Element des ganzen Covers.  In v4 stecken
+   Blockindex und Block-CRC in den Satz-Bits, und die pro Nachricht
+   konstanten Felder (K, R, Ciphertext-Laenge, Block-Nonce) liegen in einem
+   MANIFEST, das selbst aus ganz normalen Cover-Saetzen besteht.  Ein Cover
+   im Profil "plain" enthaelt damit ausschliesslich Chat-Saetze.
+   Das Manifest ist mit einem schluesselabgeleiteten Keystream verschleiert;
+   ohne Passphrase ist es von einem Nutzblock nicht zu unterscheiden.  Es
+   wird zweimal gesendet (Anfang + Ende, mit verschiedenen Nonces und daher
+   voellig verschiedenem Wortlaut), damit der Verlust einer Stelle nicht die
+   ganze Nachricht unlesbar macht.
+   Sprache und Stufe stehen NICHT im Manifest -- der Empfaenger probiert die
+   8 Kombinationen durch, die CRC16 des Manifests entscheidet.
+
+2. Dichte statt Laenge.  In v3 holten hoehere Stufen ihre Bits, indem sie
+   Nebensaetze anhaengten: ein Nebensatz brachte ~5 Bit, kostete aber ~20
+   Zeichen -- schlechter als der Grundsatz.  Dadurch sank die Dichte pro
+   Zeichen mit steigender Stufe (0,31 -> 0,26 Bit/Zeichen) und "sehr knapp"
+   erzeugte MEHR Zeichen als "sehr glaubhaft".  In v4 bleibt der Satz kurz
+   und die Wortlisten werden breiter (8/16/32 Optionen = 3/4/5 Bit je Slot);
+   Stufe 3 faellt zusaetzlich ins Telegrammstil ohne Artikel und Verb.
+   Die Glaubhaftigkeit sinkt jetzt durch ungewoehnliche Wortwahl, nicht durch
+   Laenge -- und die Zeichenzahl faellt monoton mit der Stufe.
+
+3. Richtige Artikel im Deutschen ("der Kaffee", "die Antenne") statt des
+   pauschalen "das" aus v3.
+
+v3-Cover lassen sich mit v4 NICHT entschluesseln (anderes Wire-Format und
+anderes PBKDF2-Salt).
+
 Schluessel:  aus gemeinsamer Passphrase via PBKDF2-HMAC-SHA256
-             (Salt "stegocomm/v3/pbkdf2", 200_000 Iterationen, 32 Byte).
+             (Salt "stegocomm/v4/pbkdf2", 200_000 Iterationen, 32 Byte).
              Beide Seiten muessen dieselbe Passphrase nutzen.
 """
 
@@ -27,8 +61,21 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CHUNK = 8            # Byte pro Block
 BLOCK_BITS = CHUNK * 8   # 64
-PBKDF2_SALT = b"stegocomm/v3/pbkdf2"
+PBKDF2_SALT = b"stegocomm/v4/pbkdf2"
 PBKDF2_ITERS = 200_000
+
+# Feldgroessen (Byte) der beiden Rahmen-Typen
+MNONCE_LEN = 2                     # Manifest-Nonce, im Klartext
+BNONCE_LEN = 2                     # Block-Nonce, im Manifest verschleiert
+# K | R | Padlaenge | bnonce | crc16 -- die Ciphertext-Laenge steckt als
+# 3-Bit-Padlaenge drin (ctlen = K*CHUNK - pad) statt als 16-Bit-Zahl.
+MANIFEST_PLAIN = 1 + 1 + 1 + BNONCE_LEN + 2                   # 7 Byte
+MANIFEST_LEN = MNONCE_LEN + MANIFEST_PLAIN                    # 9 Byte
+MANIFEST_BITS = MANIFEST_LEN * 8                              # 72
+BLOCK_FRAME = 1 + CHUNK + 1        # idx | payload | crc8 = 10 Byte
+FRAME_BITS = BLOCK_FRAME * 8       # 80
+
+MAX_BLOCKS = 254                   # idx passt in 1 Byte, 255 bleibt frei
 
 # --------------------------------------------------------- GF(256) Arithmetik
 _EXP = [0] * 512
@@ -115,83 +162,147 @@ def crc16(bs):
     return c & 0xffff
 
 # --------------------------------------------------------- Grammatiken DE/EN
-# Jede Wortliste hat exakt 2/4/8 Eintraege -> 1/2/3 Bit, reversibel dekodierbar.
+# Wortlisten sind nach Gebraeuchlichkeit sortiert; eine Stufe nutzt jeweils das
+# PRAEFIX der Laenge 2^k (8/16/32 -> 3/4/5 Bit).  Stufe 0 sieht also nur die
+# haeufigsten, unauffaelligsten Woerter, Stufe 3 die ganze Liste.
+# Nomen tragen ihren Artikel mit; die Slots b1/b2 rendern die blosse Form
+# (alles nach dem ersten Leerzeichen) fuer den Telegrammstil.
 # MUSS mit den POOLS/TEMPLATES in cover_studio.html identisch bleiben.
 POOLS = {
-    "en": {
-        "adv":  ["well", "so", "anyway", "also"],
-        "noun": ["weather", "signal", "band", "rig", "coffee", "garden", "antenna", "traffic"],
-        "adj":  ["good", "fine", "poor", "strong", "quiet", "noisy", "steady", "clear"],
-        "adj2": ["warm", "cool", "calm", "windy", "bright", "cloudy", "dry", "damp"],
-        "noun2":["news", "plan", "crew", "path", "gear", "tower", "wire", "shack"],
-        "adj3": ["ready", "late", "close", "set", "open", "slow", "near", "short"],
-        "adv2": ["today", "later", "soon", "yet"],
-        "adj4": ["stable", "tough", "fresh", "flat", "light", "dense", "firm", "mild"],
-        "end":  ["here", "now", "again", "still"],
-    },
     "de": {
-        "adv":  ["naja", "also", "tja", "ansonsten"],
-        "noun": ["wetter", "signal", "band", "funk", "kaffee", "garten", "antenne", "verkehr"],
-        "adj":  ["gut", "fein", "mau", "stark", "ruhig", "laut", "stetig", "klar"],
-        "adj2": ["warm", "kuehl", "still", "windig", "hell", "trueb", "trocken", "feucht"],
-        "noun2":["plan", "nachbar", "kollege", "weg", "empfang", "turm", "draht", "huette"],
-        "adj3": ["bereit", "spaet", "nah", "fertig", "offen", "langsam", "knapp", "matt"],
-        "adv2": ["heute", "spaeter", "gleich", "wohl"],
-        "adj4": ["stabil", "zaeh", "frisch", "flach", "leicht", "dicht", "fest", "mild"],
-        "end":  ["hier", "jetzt", "wieder", "noch"],
+        "N1": ["das wetter", "das signal", "das band", "der funk",
+               "der kaffee", "der garten", "die antenne", "der verkehr",
+               "das licht", "der himmel", "das radio", "das netz",
+               "der wind", "das dach", "der markt", "der weg",
+               "der zug", "der hof", "der ofen", "der keller",
+               "der boden", "der strom", "der nebel", "der regen",
+               "der frost", "der mond", "das feld", "das ufer",
+               "das tal", "der teich", "die halle", "die kueche"],
+        "N2": ["der plan", "der nachbar", "der kollege", "der empfang",
+               "der turm", "der draht", "die huette", "die leitung",
+               "der schuppen", "der zaun", "der schalter", "die kiste",
+               "die lampe", "der schlauch", "der eimer", "der korb",
+               "der stecker", "die kette", "der riegel", "der deckel",
+               "die schaufel", "der hammer", "die leiter", "der pfosten",
+               "der bogen", "die schiene", "der knoten", "der rahmen",
+               "die klappe", "der spiegel", "die tuer", "der kasten"],
+        "A1": ["gut", "fein", "mau", "stark", "ruhig", "laut", "stetig", "klar",
+               "matt", "zaeh", "frisch", "flach", "dicht", "fest", "mild", "rau",
+               "schwach", "hart", "weich", "glatt", "steil", "eng", "breit", "tief",
+               "hoch", "kurz", "lang", "dumpf", "spitz", "grob", "zart", "schroff"],
+        "A2": ["warm", "kuehl", "still", "windig", "hell", "trueb", "trocken", "feucht",
+               "sonnig", "wolkig", "kalt", "lau", "diesig", "klamm", "schwuel", "frostig"],
+        "A3": ["bereit", "spaet", "nah", "fertig", "offen", "langsam", "knapp", "leer",
+               "voll", "frei", "sicher", "locker", "straff", "schief", "gerade", "sauber",
+               "neu", "alt", "heil", "krumm", "rund", "eckig", "leicht", "schwer",
+               "hohl", "massiv", "roh", "blank", "glatt", "stumpf", "warm", "kalt"],
+        "END": ["hier", "jetzt", "wieder", "noch", "heute", "gleich", "spaeter", "morgen",
+                "abends", "nachts", "drinnen", "draussen", "oben", "unten", "vorn", "hinten"],
+        "ADV2": ["gleich", "spaeter", "heute", "morgen", "abends", "nachts", "frueh", "bald",
+                 "jetzt", "dann", "kurz", "lange", "oft", "selten", "immer", "nie"],
+    },
+    "en": {
+        "N1": ["the weather", "the signal", "the band", "the rig",
+               "the coffee", "the garden", "the antenna", "the traffic",
+               "the light", "the sky", "the radio", "the net",
+               "the wind", "the roof", "the market", "the path",
+               "the train", "the yard", "the stove", "the cellar",
+               "the floor", "the power", "the fog", "the rain",
+               "the frost", "the moon", "the field", "the shore",
+               "the valley", "the pond", "the hall", "the kitchen"],
+        "N2": ["the plan", "the neighbour", "the colleague", "the reception",
+               "the tower", "the wire", "the shack", "the line",
+               "the shed", "the fence", "the switch", "the crate",
+               "the lamp", "the hose", "the bucket", "the basket",
+               "the plug", "the chain", "the latch", "the lid",
+               "the shovel", "the hammer", "the ladder", "the post",
+               "the arch", "the rail", "the knot", "the frame",
+               "the flap", "the mirror", "the door", "the box"],
+        "A1": ["good", "fine", "poor", "strong", "quiet", "noisy", "steady", "clear",
+               "dull", "tough", "fresh", "flat", "dense", "firm", "mild", "rough",
+               "weak", "hard", "soft", "smooth", "steep", "narrow", "wide", "deep",
+               "high", "short", "long", "muffled", "sharp", "coarse", "tender", "harsh"],
+        "A2": ["warm", "cool", "calm", "windy", "bright", "cloudy", "dry", "damp",
+               "sunny", "overcast", "cold", "mellow", "hazy", "clammy", "muggy", "frosty"],
+        "A3": ["ready", "late", "close", "set", "open", "slow", "tight", "empty",
+               "full", "free", "safe", "loose", "taut", "crooked", "straight", "clean",
+               "new", "old", "whole", "bent", "round", "square", "light", "heavy",
+               "hollow", "solid", "raw", "plain", "smooth", "blunt", "warm", "cold"],
+        "END": ["here", "now", "again", "still", "today", "soon", "later", "tomorrow",
+                "tonight", "outside", "inside", "upstairs", "downstairs", "ahead",
+                "behind", "nearby"],
+        "ADV2": ["soon", "later", "today", "tomorrow", "tonight", "overnight", "early",
+                 "shortly", "now", "then", "briefly", "long", "often", "rarely",
+                 "always", "never"],
     },
 }
+
+# Slot-Name -> Wortliste.  Ein "b"-Praefix rendert die artikellose Form.
+SLOT_POOL = {"n1": "N1", "b1": "N1", "n2": "N2", "b2": "N2",
+             "a1": "A1", "a2": "A2", "a3": "A3", "end": "END", "adv2": "ADV2"}
+
+# {slot:anzahl} -- anzahl ist die genutzte Praefixlaenge und muss 2er-Potenz sein.
 TEMPLATES = {
-    "en": [
-        "the {noun} is {adj} {end}",
-        "{adv} the {noun} is {adj} and {adj2} {end}",
-        "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}",
-        "{adv} the {noun} is {adj} and {adj2}, the {noun2} looks {adj3}, {adv2} it stays {adj4}",
-    ],
     "de": [
-        "das {noun} ist {adj} {end}",
-        "{adv} das {noun} ist {adj} und {adj2} {end}",
-        "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}",
-        "{adv} das {noun} ist {adj} und {adj2}, der {noun2} wirkt {adj3}, {adv2} bleibt es {adj4}",
+        "{n1:16} ist {a1:8} {end:8}",                                   # 10 Bit
+        "{n1:32} ist {a1:16} {end:16}",                                 # 13 Bit
+        "{n1:32} ist {a1:32}, {n2:32} {a3:32}",                         # 20 Bit
+        "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",          # 28 Bit
+    ],
+    "en": [
+        "{n1:16} is {a1:8} {end:8}",
+        "{n1:32} is {a1:16} {end:16}",
+        "{n1:32} is {a1:32}, {n2:32} {a3:32}",
+        "{b1:32} {a1:32}, {b2:32} {a3:32}, {adv2:16} {a2:16}",
     ],
 }
+
 NAMES = ["W1ABC", "DL2XYZ", "OH5QQ", "VK3RT", "G0MNP"]
 
-_SLOT_RE = re.compile(r"\{(\w+)\}")
-
-def _width(opts):
-    return int(round(math.log2(len(opts))))
+_SLOT_RE = re.compile(r"\{(\w+):(\d+)\}")
 
 def _build(lang):
     pools = POOLS[lang]
     out = []
     for tpl in TEMPLATES[lang]:
-        order = _SLOT_RE.findall(tpl)
-        bits = sum(_width(pools[n]) for n in order)
+        slots, bits = [], 0
         pat, last = "", 0
         for m in _SLOT_RE.finditer(tpl):
+            name, cnt = m.group(1), int(m.group(2))
+            opts = list(pools[SLOT_POOL[name]][:cnt])
+            if len(opts) != cnt or cnt & (cnt - 1):
+                raise ValueError(f"Wortliste {name}:{cnt} ({lang}) unbrauchbar")
+            if name.startswith("b"):
+                opts = [w.split(" ", 1)[1] for w in opts]
+            if len(set(opts)) != cnt:
+                raise ValueError(f"Wortliste {name}:{cnt} ({lang}) hat Duplikate")
+            width = cnt.bit_length() - 1
+            slots.append({"opts": opts, "width": width})
+            bits += width
             pat += re.escape(tpl[last:m.start()])
-            pat += "(" + "|".join(re.escape(w) for w in pools[m.group(1)]) + ")"
+            # laengste Alternative zuerst -> kein vorzeitiger Teiltreffer
+            alts = sorted(opts, key=len, reverse=True)
+            pat += "(" + "|".join(re.escape(w) for w in alts) + ")"
             last = m.end()
         pat += re.escape(tpl[last:])
-        out.append({"tpl": tpl, "pools": pools, "order": order,
-                    "bits": bits, "re": re.compile("^" + pat + "$")})
+        out.append({"tpl": tpl, "slots": slots, "bits": bits,
+                    "re": re.compile("^" + pat + "$")})
     return out
 
 GRAMMARS = {"de": _build("de"), "en": _build("en")}
+LEVELS = range(len(TEMPLATES["de"]))
 
 def render_sentence(lv, bits):
     idx = 0
-    words = {}
-    for name in lv["order"]:
-        opts = lv["pools"][name]
-        w = _width(opts)
+    words = []
+    for s in lv["slots"]:
         v = 0
-        for _ in range(w):
+        for _ in range(s["width"]):
             v = (v << 1) | bits[idx]
             idx += 1
-        words[name] = opts[v]
-    return _SLOT_RE.sub(lambda m: words[m.group(1)], lv["tpl"])
+        words.append(s["opts"][v])
+    it = iter(words)
+    return _SLOT_RE.sub(lambda m: next(it), lv["tpl"])
 
 def parse_sentence(lv, line):
     s = re.sub(r"[.\s]+$", "", line.strip())
@@ -199,11 +310,9 @@ def parse_sentence(lv, line):
     if not m:
         return None
     bits = []
-    for i, name in enumerate(lv["order"]):
-        opts = lv["pools"][name]
-        v = opts.index(m.group(i + 1))
-        w = _width(opts)
-        for b in range(w - 1, -1, -1):
+    for i, sl in enumerate(lv["slots"]):
+        v = sl["opts"].index(m.group(i + 1))
+        for b in range(sl["width"] - 1, -1, -1):
             bits.append((v >> b) & 1)
     return bits
 
@@ -224,39 +333,95 @@ def decrypt_msg(ct, key):
     comp = key["aes"].decrypt(iv, body, None)
     return zlib.decompress(comp).decode("utf-8")
 
-def keystream(raw, idx, nbytes):
+def _ks(raw, tag, extra, nbytes):
+    """SHA-256-Keystream:  seed = raw || tag(2) || extra || counter."""
     out = bytearray()
     ctr = 0
     while len(out) < nbytes:
-        seed = raw + bytes([0x50, 0x41, idx & 0xff, ctr & 0xff])   # "PA" + idx + ctr
-        out += hashlib.sha256(seed).digest()
+        out += hashlib.sha256(raw + tag + bytes(extra) + bytes([ctr & 0xff])).digest()
         ctr += 1
     return bytes(out[:nbytes])
+
+def ks_manifest(raw, mnonce, n):
+    return _ks(raw, b"SM", mnonce, n)
+
+def ks_block(raw, bnonce, n):
+    """Verschleiert den 10-Byte-Blockrahmen.  Haengt bewusst NICHT vom
+    Blockindex ab -- der steckt ja im Rahmen und ist beim Dekodieren
+    zunaechst unbekannt."""
+    return _ks(raw, b"SB", bnonce, n)
+
+def ks_pad(raw, bnonce, idx, n):
+    """Fuellbits am Satzende; pro Block verschieden, wird beim Dekodieren
+    ignoriert."""
+    return _ks(raw, b"SP", bytes(bnonce) + bytes([idx & 0xff]), n)
+
+def _xor(a, b):
+    return bytes(x ^ y for x, y in zip(a, b))
+
+# --------------------------------------------------------- Rahmen
+def build_manifest(raw, K, R, ctlen, bnonce, mnonce):
+    plain = bytes([K, R, (K * CHUNK - ctlen) & 0x07]) + bytes(bnonce)
+    c = crc16(plain)
+    plain += bytes([(c >> 8) & 0xff, c & 0xff])
+    return bytes(mnonce) + _xor(plain, ks_manifest(raw, mnonce, len(plain)))
+
+def parse_manifest(raw, buf):
+    if len(buf) < MANIFEST_LEN:
+        return None
+    mnonce = buf[:MNONCE_LEN]
+    plain = _xor(buf[MNONCE_LEN:MANIFEST_LEN],
+                 ks_manifest(raw, mnonce, MANIFEST_PLAIN))
+    if crc16(plain[:-2]) != ((plain[-2] << 8) | plain[-1]):
+        return None
+    K, R, pad = plain[0], plain[1], plain[2]
+    bnonce = plain[3:3 + BNONCE_LEN]
+    ctlen = K * CHUNK - pad
+    if K == 0 or K + R > MAX_BLOCKS or pad > 7 or ctlen <= 0:
+        return None
+    return {"K": K, "R": R, "ctlen": ctlen, "bnonce": bnonce}
+
+def build_frame(raw, idx, payload, bnonce):
+    ck = crc16(bytes([idx]) + payload) & 0xff
+    plain = bytes([idx]) + payload + bytes([ck])
+    return _xor(plain, ks_block(raw, bnonce, BLOCK_FRAME))
+
+def parse_frame(raw, buf, bnonce):
+    plain = _xor(buf[:BLOCK_FRAME], ks_block(raw, bnonce, BLOCK_FRAME))
+    idx, payload, ck = plain[0], plain[1:1 + CHUNK], plain[-1]
+    if (crc16(bytes([idx]) + payload) & 0xff) != ck:
+        return None
+    return idx, payload
+
+def render_run(lv, frame, nbits, pad):
+    """Bitfeld -> Saetze; Rest der letzten Satzkapazitaet mit pad auffuellen."""
+    bits = bytes_to_bits(frame)[:nbits]
+    n = math.ceil(nbits / lv["bits"])
+    need = n * lv["bits"] - nbits
+    if need > 0:
+        bits = bits + bytes_to_bits(pad)[:need]
+    return [render_sentence(lv, bits[i * lv["bits"]:(i + 1) * lv["bits"]])
+            for i in range(n)]
+
+def sentences_for(lv, nbits):
+    return math.ceil(nbits / lv["bits"])
 
 # --------------------------------------------------------- Encode / Decode
 def apply_profile(txt, profile):
     return txt.upper() if profile == "js8call" else txt.lower()
 
-def render_block(idx, tot, K, ctlen, level, lang, data_bytes, raw):
-    lv = GRAMMARS[lang][level]
-    bits = bytes_to_bits(data_bytes)                       # 64
-    s_per = math.ceil(BLOCK_BITS / lv["bits"])
-    need = s_per * lv["bits"] - BLOCK_BITS
-    if need > 0:
-        ks = keystream(raw, idx, math.ceil(need / 8))
-        bits += bytes_to_bits(ks)[:need]
-    ck = crc16(data_bytes) & 0xff
-    header = f"DE {NAMES[idx % len(NAMES)]} MSG {idx}/{tot} K {K} SZ {ctlen} LV {level} CK {ck}"
-    lines = [render_sentence(lv, bits[i * lv["bits"]:(i + 1) * lv["bits"]]) for i in range(s_per)]
-    return header, lines
-
 def encode(secret, key, lang="de", profile="js8call", level=1, parity=2):
+    raw = key["raw"]
+    lv = GRAMMARS[lang][level]
     ct = encrypt_msg(secret, key)
     ctlen = len(ct)
     padded = ct + b"\x00" * ((-ctlen) % CHUNK)
     K = len(padded) // CHUNK
+    if K > MAX_BLOCKS:
+        raise ValueError(f"Nachricht zu lang -- {K} Datenbloecke, erlaubt sind "
+                         f"{MAX_BLOCKS} (rund {MAX_BLOCKS * CHUNK} Byte Ciphertext).")
     data = [padded[i * CHUNK:(i + 1) * CHUNK] for i in range(K)]
-    R = min(parity, max(0, 255 - K))
+    R = min(parity, max(0, MAX_BLOCKS - K))
     parity_blocks = []
     if R > 0:
         P = cauchy(R, K)
@@ -270,64 +435,118 @@ def encode(secret, key, lang="de", profile="js8call", level=1, parity=2):
             parity_blocks.append(bytes(pb))
     allb = data + parity_blocks
     tot = len(allb)
-    blocks = [render_block(i, tot, K, ctlen, level, lang, allb[i], key["raw"])
-              for i in range(tot)]
-    return {"blocks": blocks, "K": K, "R": R, "tot": tot,
+
+    bnonce = os.urandom(BNONCE_LEN)
+    pad_bytes = math.ceil(lv["bits"] / 8) + 1
+
+    def manifest_section():
+        mnonce = os.urandom(MNONCE_LEN)
+        buf = build_manifest(raw, K, R, ctlen, bnonce, mnonce)
+        pad = ks_pad(raw, bnonce, 0xff, pad_bytes)
+        return {"header": f"DE {NAMES[0]} CQ CQ",
+                "lines": render_run(lv, buf, MANIFEST_BITS, pad)}
+
+    sections = [manifest_section()]
+    for i in range(tot):
+        buf = build_frame(raw, i, allb[i], bnonce)
+        pad = ks_pad(raw, bnonce, i, pad_bytes)
+        sections.append({"header": f"DE {NAMES[i % len(NAMES)]} MSG {i}/{tot}",
+                         "lines": render_run(lv, buf, FRAME_BITS, pad),
+                         "block": i})
+    sections.append(manifest_section())
+
+    return {"sections": sections, "K": K, "R": R, "tot": tot,
             "ctlen": ctlen, "level": level, "lang": lang, "profile": profile}
 
-def cover_to_text(enc):
+def cover_to_text(enc, sections=None):
+    """Cover als Text.  Im Profil js8call bekommt jeder Abschnitt eine
+    dekorative Rufzeichen-Zeile -- sie traegt KEINE Daten und wird beim
+    Dekodieren einfach uebersprungen.  Im Profil plain entfaellt sie, das
+    Cover besteht dann ausschliesslich aus Chat-Saetzen."""
     parts = []
-    for header, lines in enc["blocks"]:
-        parts.append(apply_profile(header, enc["profile"]))
-        parts += [apply_profile(l, enc["profile"]) for l in lines]
+    for s in (sections if sections is not None else enc["sections"]):
+        if enc["profile"] == "js8call" and s.get("header"):
+            parts.append(apply_profile(s["header"], enc["profile"]))
+        parts += [apply_profile(l, enc["profile"]) for l in s["lines"]]
     return "\n".join(parts)
 
-HEADER_RE = re.compile(r"^de (\S+) msg (\d+)/(\d+) k (\d+) sz (\d+) lv (\d+) ck (\d+)$")
+def _norm_lines(cover_text):
+    return [re.sub(r"[.\s]+$", "", l.strip().lower())
+            for l in cover_text.splitlines() if l.strip()]
+
+def _find_manifest(raw, lines):
+    """Probiert alle (Sprache, Stufe) durch und schiebt ein Fenster ueber den
+    Text; die CRC16 im Manifest entscheidet.  Liefert Manifest-Daten, Sprache,
+    Stufe und die belegten Zeilenbereiche."""
+    n = len(lines)
+    for lang in ("de", "en"):
+        for level in LEVELS:
+            lv = GRAMMARS[lang][level]
+            span = sentences_for(lv, MANIFEST_BITS)
+            hit, spans = None, []
+            i = 0
+            while i + span <= n:
+                bits, ok = [], True
+                for s in range(span):
+                    pb = parse_sentence(lv, lines[i + s])
+                    if pb is None:
+                        ok = False
+                        break
+                    bits += pb
+                if ok:
+                    man = parse_manifest(raw, bits_to_bytes(bits[:MANIFEST_BITS]))
+                    if man is not None:
+                        if hit is None:
+                            hit = man
+                        spans.append((i, i + span))
+                        i += span
+                        continue
+                i += 1
+            if hit is not None:
+                return hit, lang, level, spans
+    return None, None, None, []
 
 def decode(cover_text, key):
-    lines = [re.sub(r"[.\s]+$", "", l.strip().lower())
-             for l in cover_text.splitlines() if l.strip()]
+    raw = key["raw"]
+    lines = _norm_lines(cover_text)
+    man, lang, level, spans = _find_manifest(raw, lines)
+    if man is None:
+        return {"ok": False, "error": "Kein gueltiges Manifest gefunden -- "
+                                      "falsche Passphrase oder kein Cover-Text."}
+    K, R, ctlen, bnonce = man["K"], man["R"], man["ctlen"], man["bnonce"]
+    tot = K + R
+    lv = GRAMMARS[lang][level]
+    span = sentences_for(lv, FRAME_BITS)
+
+    blocked = set()
+    for a, b in spans:
+        blocked.update(range(a, b))
+
     n = len(lines)
-    i = 0
-    tot = K = ctlen = None
-    lang = None
     found = {}
-    while i < n:
-        mh = HEADER_RE.match(lines[i])
-        if not mh:
+    i = 0
+    while i + span <= n:
+        if i in blocked:
             i += 1
             continue
-        idx = int(mh.group(2)); tot = int(mh.group(3)); K = int(mh.group(4))
-        ctlen = int(mh.group(5)); level = int(mh.group(6)); ck = int(mh.group(7))
-        i += 1
-        if lang is None:
-            for L in ("de", "en"):
-                lv = GRAMMARS[L][level] if level < len(GRAMMARS[L]) else None
-                if lv and lv["re"].match(lines[i] if i < n else ""):
-                    lang = L
-                    break
-        lv = GRAMMARS[lang][level] if lang is not None else None
-        if lv is None:
-            continue
-        s_per = math.ceil(BLOCK_BITS / lv["bits"])
-        bits, good = [], True
-        for _ in range(s_per):
-            pb = parse_sentence(lv, lines[i] if i < n else "")
-            i += 1
+        bits, ok = [], True
+        for s in range(span):
+            if (i + s) in blocked:
+                ok = False
+                break
+            pb = parse_sentence(lv, lines[i + s])
             if pb is None:
-                good = False
+                ok = False
                 break
             bits += pb
-        if not good:
-            continue
-        bs = bits_to_bytes(bits[:BLOCK_BITS])
-        if (crc16(bs) & 0xff) != ck:          # beschaedigt -> als Erasure behandeln
-            continue
-        found[idx] = bs
-    if tot is None or K is None:
-        return {"ok": False, "error": "Kein gueltiger Cover-Block erkannt."}
+        if ok:
+            fr = parse_frame(raw, bits_to_bytes(bits[:FRAME_BITS]), bnonce)
+            if fr is not None and fr[0] < tot and fr[0] not in found:
+                found[fr[0]] = fr[1]
+                i += span
+                continue
+        i += 1
 
-    R = tot - K
     data_missing = [d for d in range(K) if d not in found]
     present = sorted(found.keys())
 
@@ -353,15 +572,18 @@ def decode(cover_text, key):
         data_blocks = [bytes(b) for b in data_blocks]
         recovered = True
     else:
-        return {"ok": False, "missing": data_missing, "tot": tot, "K": K, "recovered": False}
+        return {"ok": False, "missing": data_missing, "tot": tot, "K": K,
+                "recovered": False}
 
     ct = b"".join(data_blocks)[:ctlen]
     try:
         msg = decrypt_msg(ct, key)
-        return {"ok": True, "message": msg, "tot": tot, "K": K, "recovered": recovered, "R": R}
+        return {"ok": True, "message": msg, "tot": tot, "K": K,
+                "recovered": recovered, "R": R, "lang": lang, "level": level}
     except Exception:
         return {"ok": False, "tot": tot, "K": K,
-                "error": "Entschluesselung fehlgeschlagen -- falsche Passphrase oder zu viele Datenfehler."}
+                "error": "Entschluesselung fehlgeschlagen -- falsche Passphrase "
+                         "oder zu viele Datenfehler."}
 
 def nack_string(res):
     if not res.get("missing"):
@@ -372,43 +594,62 @@ def nack_string(res):
 def _selftest():
     key = derive_key("test-passphrase")
     ok_all = True
-    for lang, level, par in [("de", 1, 2), ("en", 0, 2), ("de", 3, 1)]:
+    for lang, level, par, profile in [("de", 1, 2, "js8call"), ("en", 0, 2, "plain"),
+                                      ("de", 3, 1, "plain"), ("en", 2, 2, "js8call")]:
         secret = f"Treffen Sonntag 18 Uhr am alten Hafen -- {lang}/{level}"
-        enc = encode(secret, key, lang=lang, profile="js8call", level=level, parity=par)
+        enc = encode(secret, key, lang=lang, profile=profile, level=level, parity=par)
         cover = cover_to_text(enc)
         r0 = decode(cover, key)
         clean = r0.get("ok") and r0.get("message") == secret
-        print(f"[{lang} L{level} P{par}] sauber: {r0.get('ok')} -> {'MATCH' if clean else 'MISMATCH'}")
-        ok_all &= clean
-        # Bloecke anhand Header gruppieren
-        groups, cur = [], None
-        for ln in cover.split("\n"):
-            if re.match(r"^DE ", ln, re.I):
-                if cur:
-                    groups.append(cur)
-                cur = [ln]
-            elif cur:
-                cur.append(ln)
-        if cur:
-            groups.append(cur)
-        # par Bloecke weg -> via Parity
-        lossy = "\n".join("\n".join(g) for gi, g in enumerate(groups) if gi >= par)
-        r1 = decode(lossy, key)
+        det = (r0.get("lang") == lang and r0.get("level") == level)
+        print(f"[{lang} L{level} P{par} {profile}] sauber: {r0.get('ok')} "
+              f"-> {'MATCH' if clean else 'MISMATCH'}"
+              f"  erkannt: {r0.get('lang')}/L{r0.get('level')} {'OK' if det else 'FALSCH'}")
+        ok_all &= bool(clean and det)
+
+        # par Datenbloecke weg -> via Parity ohne Nachforderung
+        keep = [s for s in enc["sections"] if s.get("block") is None or s["block"] >= par]
+        r1 = decode(cover_to_text(enc, keep), key)
         via = r1.get("ok") and r1.get("recovered") and r1.get("message") == secret
         print(f"   {par} Bloecke weg -> ok: {r1.get('ok')} via_parity: {r1.get('recovered')} "
               f"msg: {'MATCH' if via else r1.get('error') or 'MISMATCH'}")
-        ok_all &= via
+        ok_all &= bool(via)
+
         # par+1 weg -> NACK
-        lossy2 = "\n".join("\n".join(g) for gi, g in enumerate(groups) if gi >= par + 1)
-        r2 = decode(lossy2, key)
+        keep2 = [s for s in enc["sections"] if s.get("block") is None or s["block"] >= par + 1]
+        r2 = decode(cover_to_text(enc, keep2), key)
         print(f"   {par+1} Bloecke weg -> ok: {r2.get('ok')} nack: {nack_string(r2)}")
-        ok_all &= (not r2.get("ok"))
+        ok_all &= (not r2.get("ok")) and bool(r2.get("missing"))
+
+        # vorderes Manifest weg -> hinteres muss uebernehmen
+        keep3 = enc["sections"][1:]
+        r3 = decode(cover_to_text(enc, keep3), key)
+        man_ok = r3.get("ok") and r3.get("message") == secret
+        print(f"   1. Manifest weg -> ok: {r3.get('ok')} "
+              f"msg: {'MATCH' if man_ok else r3.get('error') or 'MISMATCH'}")
+        ok_all &= bool(man_ok)
+
+        # ein einzelner Satz mitten drin verstuemmelt -> Resync + Erasure
+        raw_lines = cover_to_text(enc).split("\n")
+        cut = len(raw_lines) // 2
+        del raw_lines[cut]
+        r4 = decode("\n".join(raw_lines), key)
+        print(f"   1 Satz geloescht -> ok: {r4.get('ok')} "
+              f"msg: {'MATCH' if r4.get('message') == secret else r4.get('error') or 'NACK'}")
+        ok_all &= bool(r4.get("ok") and r4.get("message") == secret)
+
+    # falsche Passphrase darf nicht durchgehen
+    enc = encode("geheim", key, lang="de", level=1, parity=2)
+    r5 = decode(cover_to_text(enc), derive_key("falsch"))
+    print(f"[falsche Passphrase] ok: {r5.get('ok')} -> {'korrekt abgelehnt' if not r5.get('ok') else 'FEHLER'}")
+    ok_all &= (not r5.get("ok"))
+
     print("selftest fertig:", "ALLES GRUEN" if ok_all else "FEHLER")
     return ok_all
 
 # --------------------------------------------------------- CLI
 def _main():
-    ap = argparse.ArgumentParser(description="StegoComm v3 -- byte-kompatibel zu cover_studio.html")
+    ap = argparse.ArgumentParser(description="StegoComm v4 -- byte-kompatibel zu cover_studio.html")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     pe = sub.add_parser("encode", help="Klartext -> Cover (stdout)")
