@@ -32,6 +32,20 @@ def secret_for(lang, level, profile):
     return f'interop {lang} L{level} {profile} — Umlaute äöü ß, Emoji 🛰, "quoted"'
 
 
+# Each case uses a different topic selection, and the other implementation is
+# never told which.  If the topic ever leaked into the bit layout, this fails.
+TOPIC_SETS = [
+    sc.TOPIC_ORDER,                     # everything
+    sc.AFU_TOPICS,                      # amateur-radio mode
+    ["garden"],                         # a single topic
+    ["weather", "travel"],              # two
+    ["home", "work", "garden"],         # three
+    ["tech", "weather"],                # tech mixed in
+    None,                               # the default set
+    ["travel"],
+]
+
+
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ("write", "verify"):
         print("usage: python tests/interop.py write|verify <dir>", file=sys.stderr)
@@ -41,12 +55,13 @@ def main():
     key = sc.derive_key(PASS)
 
     failures = 0
-    for lang, level, par, profile in CASES:
+    for i, (lang, level, par, profile) in enumerate(CASES):
         secret = secret_for(lang, level, profile)
         stem = f"{lang}_{level}_{profile}"
         if mode == "write":
             enc = sc.encode(secret, key, lang=lang, profile=profile,
-                            level=level, parity=par)
+                            level=level, parity=par,
+                            topics=TOPIC_SETS[i % len(TOPIC_SETS)])
             with open(os.path.join(out, f"py_{stem}.txt"), "w", encoding="utf-8") as fh:
                 fh.write(sc.cover_to_text(enc))
         else:

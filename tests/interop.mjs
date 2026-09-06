@@ -4,7 +4,8 @@
            node tests/interop.mjs verify <dir>                                */
 import fs from "node:fs";
 import path from "node:path";
-import { deriveKey, encode, decode, coverToText, PASS, CASES } from "./engine.mjs";
+import { deriveKey, encode, decode, coverToText, PASS, CASES,
+         TOPIC_ORDER, AFU_TOPICS } from "./engine.mjs";
 
 const [mode, dir] = process.argv.slice(2);
 if (!["write", "verify"].includes(mode) || !dir) {
@@ -20,11 +21,24 @@ const secretFor = (lang, level, profile) =>
   `interop ${lang} L${level} ${profile} — Umlaute äöü ß, Emoji 🛰, "quoted"`;
 
 let failures = 0;
-for (const [lang, level, par, profile] of CASES) {
+/* Each case uses a different topic selection, and the other implementation is
+   never told which. If the topic ever leaked into the bit layout, this fails. */
+const topicsFor = (i) => [
+  TOPIC_ORDER,                      // everything
+  AFU_TOPICS,                       // amateur-radio mode
+  ["garden"],                       // a single topic
+  ["weather", "travel"],            // two
+  ["home", "work", "garden"],       // three
+  ["tech", "weather"],              // tech mixed in
+  undefined,                        // the default set
+  ["travel"],
+][i % 8];
+
+for (const [i, [lang, level, par, profile]] of CASES.entries()) {
   const secret = secretFor(lang, level, profile);
   const stem = `${lang}_${level}_${profile}`;
   if (mode === "write") {
-    const enc = await encode(secret, key, lang, profile, level, par);
+    const enc = await encode(secret, key, lang, profile, level, par, topicsFor(i));
     fs.writeFileSync(path.join(dir, `js_${stem}.txt`), coverToText(enc));
   } else {
     const file = path.join(dir, `py_${stem}.txt`);

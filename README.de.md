@@ -122,6 +122,27 @@ behandelt sie als Erasure, was die Parity bis zu ihrer Grenze repariert — dar�
 kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind
 (Selective-Repeat-ARQ).
 
+### Themen-Vokabulare
+
+Die Sätze werden aus einem von sechs Alltagsvokabularen gebaut — **Wetter &
+Himmel, Haushalt & Küche, Garten & draußen, Arbeit & Erledigungen, Unterwegs &
+Straße, Funk & Technik** — und pro Satz wird ein Thema gezogen, damit ein Cover
+zwischen Themen wandert wie echtes Geplauder. Alles außer *Funk & Technik* ist
+standardmäßig an; der Knopf **AFU mode** schaltet auf *Funk & Technik* allein um,
+und einzeln anhakbar bleibt weiterhin alles.
+
+**Die Auswahl betrifft nur das Senden, beide Seiten müssen sie nicht abgleichen.**
+Das Thema trägt keine Daten: zwischen den Themen unterscheiden sich nur die
+Nomen, jedes Nomen kommt in genau einem Thema vor, und die Indizes hinter den
+Wörtern bedeuten überall dasselbe. Das Nomen sagt dem Decoder also, aus welchem
+Thema ein Satz stammt, und er kennt immer alle sechs — unabhängig davon, was du
+angehakt hast. Teilnehmer 1 kann mit Wetter und Küche senden, während Teilnehmer
+2 nur Funk & Technik angehakt hat, und beide lesen einander trotzdem; geteilt
+wird allein die Passphrase. Genau das prüft die Testsuite, indem jede
+Implementierung mit einer anderen Themenwahl kodiert und die andere dekodiert.
+
+Auf der Kommandozeile: `--topics weather,garden` oder `--afu`.
+
 ### Den Transportweg überleben
 
 Das Cover muss unbeschadet ankommen, und echte Transportwege sind nicht
@@ -159,12 +180,19 @@ Der Empfänger muss nicht wissen, welche Stufe du benutzt hast.
 
 Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 
-| Stufe | Wirkung | Bit/Satz | Sätze | Zeichen | Beispielsätze |
-|---|---|---|---|---|---|
-| 0 | sehr glaubhaft | 11 | 102 | 2628 | `das radio ist fein heute` · `heute ist die antenne mau` |
-| 1 | glaubhaft (Standard) | 14 | 78 | 1964 | `das tal ist zaeh jetzt` · `nachts ist der frost klar` |
-| 2 | knapp | 21 | 52 | 2087 | `die leitung ist krumm und das netz frisch` |
-| 3 | sehr knapp | 29 | 39 | 1469 | `kueche spitz stecker langsam frueh trueb` |
+| Stufe | Wirkung | Bit/Satz | Formen | Sätze | Zeichen | Beispielsatz |
+|---|---|---|---|---|---|---|
+| 0 | sehr glaubhaft | 13 | 8 | 89 | 2416 | `die frist ist stetig heute` |
+| 1 | glaubhaft (Standard) | 16 | 8 | 65 | 1842 | `nachts ist das licht flach` |
+| 2 | knapp | 20 | 8 | 52 | 1582 | `draussen bleibt topf fest schwuel` |
+| 3 | sehr knapp | 21 | 8 | 52 | 1325 | `jetzt stuhl klamm hoch` |
+
+Die Natürlichkeit fällt hörbar Stufe für Stufe: 0 und 1 sind vollständige Sätze
+mit Artikel und Verb, Stufe 2 lässt den Artikel weg, Stufe 3 zusätzlich das Verb.
+Diese Leiter ist **gemessen, nicht geraten** — über die Cover-Länge entscheidet
+`ceil(80 / Bits) × mittlere Satzlänge`, und vier kurze Sätze schlagen drei lange.
+Deshalb werfen die knappen Stufen Funktionswörter raus, statt Nebensätze
+anzuhängen.
 
 Höhere Stufen hängen **keine** Nebensätze mehr an — das war der v3-Entwurf, und
 er ging nach hinten los: ein angehängter Nebensatz brachte ~5 Bit, kostete aber
@@ -179,11 +207,11 @@ Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stu
 halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
 Nachrichten zum Einfügen.
 
-Jede Stufe bietet **mehrere Satzformen** mit identischer Wortzahl und Bitbreite,
-und welche benutzt wird, ist selbst Teil der Nutzlast — die Vielfalt ist also
-gratis: sie bringt ein Bit pro Satz zusätzlich, statt etwas zu kosten. Ohne sie
-hatte jede Zeile eines langen Covers dieselbe Form, und genau das verrät einen
-Text-Cover schneller an einen menschlichen Leser als alles andere.
+Jede Stufe bietet **acht Satzformen** mit identischer Wortzahl und Bitbreite —
+vier Verben (`ist/war/bleibt/wirkt`) mal zwei Wortstellungen für die Stufen 0 bis
+2, acht Anordnungen der vier Wörter für Stufe 3. Welche benutzt wird, ist selbst
+Teil der Nutzlast, die Vielfalt ist also gratis: sie bringt drei Bit pro Satz
+zusätzlich, statt etwas zu kosten.
 
 Weder Sprache noch Stufe stehen irgendwo im Cover — der Decoder probiert schlicht
 alle 8 Kombinationen durch, die CRC16 des Manifests entscheidet.
@@ -233,6 +261,10 @@ python3 stegocomms.py encode --pass "gemeinsame-passphrase" --lang de --level 1 
 # ... in Großschreibung für JS8Call
 python3 stegocomms.py encode --pass "gemeinsame-passphrase" --profile js8call \
         --lang de --level 1 "Treffen Sonntag 18 Uhr am alten Hafen"
+
+# ... nur aus gewählten Vokabularen, oder allein aus Funk & Technik
+python3 stegocomms.py encode --pass "..." --topics weather,garden "..."
+python3 stegocomms.py encode --pass "..." --afu --profile js8call "..."
 
 # Cover-Text von stdin dekodieren
 python3 stegocomms.py decode --pass "gemeinsame-passphrase"    # einfügen, dann Strg-D
@@ -294,8 +326,9 @@ dekodieren — der Decoder überspringt, was er nicht parsen kann.
 Das aktuelle Wire-Format ist **v5**. Seine Grammatik enthält überhaupt keine
 Satzzeichen, und der Decoder liest einen Wortstrom statt Zeilen und normalisiert
 vor dem Parsen Groß-/Kleinschreibung, Rufzeichen-/Zitat-Präfixe, Satzzeichen und
-Leerraum weg. Jede Stufe hat mehrere Satzformen, und deflate wird nur angewandt,
-wenn es die Nachricht tatsächlich verkleinert — es kostet sechs Byte Rahmen, die
+Leerraum weg. Jede Stufe hat acht Satzformen, die Sätze stammen aus sechs
+Themen-Vokabularen (beides muss der Empfänger nicht wissen), und deflate wird nur
+angewandt, wenn es die Nachricht tatsächlich verkleinert — es kostet sechs Byte Rahmen, die
 eine kurze Nachricht nie wieder einspielt, also hält das Manifest fest, was
 benutzt wurde. Das Salt heißt `stegocomm/v5/pbkdf2`; **Cover früherer Versionen
 lassen sich nicht mehr entschlüsseln**, das Format ist ohnehin inkompatibel.
@@ -327,9 +360,10 @@ oder verstümmelter Satz kostet damit einen Block, nicht den Rest der Nachricht.
   würden den Rahmen pro Block drücken, wurden aber gemessen und verworfen: die
   Parity-Blöcke wachsen mit der Blockgröße mit, 8 Byte ergaben bei jeder
   getesteten Nachrichtenlänge den kürzesten Cover.
-- Jede Stufe hat nur eine Handvoll Satzformen und ein Vokabular, ein langer Cover
-  wirkt daher weiterhin strukturell repetitiv. Das ist die wesentliche Grenze der
-  Glaubhaftigkeit, die bleibt.
+- Mit acht Satzformen und sechs Vokabularen wiederholt ein langer Cover kein
+  einzelnes Muster mehr, aber die Sätze sind weiterhin schablonenerzeugt und
+  paaren Wörter zufällig, es kommen also schiefe Kombinationen vor. Es liest sich
+  wie Geplauder, nicht wie Prosa.
 - Die Blockerkennung hängt an einer 8-Bit-CRC; eine zufällige Satzfolge wird mit
   ~1/256 fälschlich als Block gelesen. Ein Fehltreffer verdirbt die Nutzlast, das
   GCM-Tag weist die Nachricht dann ab statt falschen Klartext zu liefern.

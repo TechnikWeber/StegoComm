@@ -120,6 +120,27 @@ The receiver reverses everything; a per-block CRC detects damaged blocks and
 treats them as erasures, which parity repairs up to its limit — beyond that you
 get a **NACK** listing exactly which blocks to resend (selective-repeat ARQ).
 
+### Cover topics
+
+The sentences are built from one of six everyday vocabularies — **weather & sky,
+home & kitchen, garden & outdoors, work & errands, travel & road, radio & tech**
+— and a topic is drawn per sentence, so a cover wanders between subjects the way
+real chatter does. Everything but *radio & tech* is on by default; the **AFU
+mode** button switches to *radio & tech* alone for amateur-radio use, and every
+box stays individually tickable either way.
+
+**The selection is sender-side only, and the two sides never have to match it.**
+The topic carries no data: only the nouns differ between topics, every noun is
+unique across all of them, and the indices behind the words mean the same thing
+everywhere. So the noun tells the decoder which topic a sentence came from, and
+it knows all six regardless of what you ticked. One person can send with weather
+and kitchen switched on while the other has only radio & tech ticked, and each
+still reads the other perfectly — same passphrase is all that is shared. The
+test suite checks exactly this, encoding with a different topic set in each
+implementation and decoding with the other.
+
+On the command line: `--topics weather,garden` or `--afu`.
+
 ### Surviving the transport
 
 The cover has to arrive intact, and real transports are not careful. The decoder
@@ -154,12 +175,19 @@ The receiver does not need to be told which level you used.
 
 Measured on `Treffen Sonntag 18 Uhr am alten Hafen` (German, 2 parity blocks):
 
-| Level | Feel | Bits/sentence | Sentences | Characters | Examples |
-|---|---|---|---|---|---|
-| 0 | very believable | 11 | 102 | 2628 | `das radio ist fein heute` · `heute ist die antenne mau` |
-| 1 | believable (default) | 14 | 78 | 1964 | `das tal ist zaeh jetzt` · `nachts ist der frost klar` |
-| 2 | terse | 21 | 52 | 2087 | `die leitung ist krumm und das netz frisch` |
-| 3 | very terse | 29 | 39 | 1469 | `kueche spitz stecker langsam frueh trueb` |
+| Level | Feel | Bits/sentence | Shapes | Sentences | Characters | Example |
+|---|---|---|---|---|---|---|
+| 0 | very believable | 13 | 8 | 89 | 2416 | `die frist ist stetig heute` |
+| 1 | believable (default) | 16 | 8 | 65 | 1842 | `nachts ist das licht flach` |
+| 2 | terse | 20 | 8 | 52 | 1582 | `draussen bleibt topf fest schwuel` |
+| 3 | very terse | 21 | 8 | 52 | 1325 | `jetzt stuhl klamm hoch` |
+
+Naturalness falls step by step in a way you can hear: levels 0 and 1 are complete
+sentences with an article and a verb, level 2 drops the article, level 3 drops
+the verb as well. This ladder was **measured, not guessed** — what decides cover
+length is `ceil(80 / bits) × average sentence length`, and four short sentences
+beat three long ones, which is why the terse levels shed function words rather
+than adding clauses.
 
 Higher levels do **not** bolt extra clauses onto the sentence — that was the v3
 design, and it backfired: a tacked-on clause bought ~5 bits but cost ~20
@@ -174,11 +202,11 @@ Note what the slider actually buys you: on JS8Call, airtime tracks *characters*,
 so the level genuinely halves transmission time. In a chat transport it mostly
 buys you fewer messages to paste.
 
-Each level offers **several sentence shapes** of identical word count and bit
-width, and which one is used is itself part of the payload — so the variety is
-free: it adds one bit per sentence rather than costing anything. Without it every
-line of a long cover had the same shape, which is what gives a text cover away to
-a human reader faster than anything else.
+Each level offers **eight sentence shapes** of identical word count and bit
+width — four verbs (`is/was/stays/seems`) times two word orders for levels 0 to 2,
+eight orderings of the four words for level 3. Which one is used is itself part
+of the payload, so the variety is free: it adds three bits per sentence rather
+than costing anything.
 
 Neither the language nor the level is stored anywhere — the decoder simply tries
 all 8 (language, level) combinations and lets the manifest's CRC16 decide.
@@ -228,6 +256,10 @@ python3 stegocomms.py encode --pass "your-shared-passphrase" --lang en --level 1
 # ... in upper case for JS8Call
 python3 stegocomms.py encode --pass "your-shared-passphrase" --profile js8call \
         --lang en --level 1 "Meet Sunday 6pm at the old harbour"
+
+# ... drawing only on chosen vocabularies, or on radio & tech alone
+python3 stegocomms.py encode --pass "..." --topics weather,garden "..."
+python3 stegocomms.py encode --pass "..." --afu --profile js8call "..."
 
 # decode cover text from stdin
 python3 stegocomms.py decode --pass "your-shared-passphrase"    # paste, then Ctrl-D
@@ -285,8 +317,9 @@ what it cannot parse.
 The current wire format is **v5**. Its grammar contains no punctuation at all,
 and the decoder reads a stream of words rather than lines, normalising away
 casing, callsign/quote prefixes, punctuation and whitespace before parsing.
-Each level carries several sentence shapes, and deflate is applied only when it
-actually shrinks the message — it costs six bytes of framing, which a short
+Each level carries eight sentence shapes and the sentences are drawn from six
+topic vocabularies (neither of which the receiver has to be told), and deflate is
+applied only when it actually shrinks the message — it costs six bytes of framing, which a short
 message never earns back, so the manifest records which was used. The salt is
 `stegocomm/v5/pbkdf2`; **covers from earlier versions cannot be decoded**, and
 the format is incompatible anyway.
@@ -318,9 +351,9 @@ costs one block, not the rest of the message.
   per-block framing, but they were measured and rejected: the parity blocks grow
   with the block size, so 8 bytes turned out to be the smallest cover at every
   message length tried.
-- Each level has only a handful of sentence shapes and one vocabulary, so a long
-  cover is still structurally repetitive. This is the main believability ceiling
-  that remains.
+- With eight shapes and six vocabularies a long cover no longer repeats one
+  pattern, but the sentences are still template-generated and pair words at
+  random, so odd combinations occur. It reads as chatter, not as prose.
 - Block detection rests on an 8-bit CRC, so a random sentence run has a ~1/256
   chance of being mistaken for a block. A false hit corrupts the payload and the
   GCM tag then rejects the message rather than returning wrong plaintext.

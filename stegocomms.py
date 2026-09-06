@@ -55,7 +55,7 @@ Key:  derived from the shared passphrase via PBKDF2-HMAC-SHA256
       Both sides must use the same passphrase.
 """
 
-import sys, os, re, math, zlib, hashlib, argparse
+import sys, os, re, math, zlib, hashlib, secrets, argparse
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CHUNK = 8            # bytes per block
@@ -161,122 +161,389 @@ def crc16(bs):
     return c & 0xffff
 
 # --------------------------------------------------------- grammars DE/EN
-# Word lists are ordered by how ordinary the word is; a level uses the PREFIX of
-# length 2^k (8/16/32 -> 3/4/5 bits).  Level 0 therefore only ever sees the most
-# common, least remarkable words, level 3 the whole list.
-# Nouns carry their article; the slots b1/b2 render the bare form (everything
-# after the first space) for the telegraphic style.
-# MUST stay identical to POOLS/TEMPLATES in cover_studio.html.
-POOLS = {
+# Slots that carry the theme, per topic. Everything else is shared, because
+# only the nouns need to differ: the noun identifies the topic, so every other
+# slot can use one list whose indices mean the same thing in every topic.
+#
+# The bare nouns are unique across EVERY topic and both lists. That rule is
+# what lets a receiver decode a cover no matter which topics the sender had
+# switched on -- the topic choice carries no data at all, it only decides
+# which words the encoder draws from.
+TOPIC_ORDER = ["weather", "home", "garden", "work", "travel", "tech"]
+DEFAULT_TOPICS = ["weather", "home", "garden", "work", "travel"]
+AFU_TOPICS = ["tech"]
+
+TOPIC_WORDS = {
     "de": {
-        "N1": ["das wetter", "das signal", "das band", "der funk",
-               "der kaffee", "der garten", "die antenne", "der verkehr",
-               "das licht", "der himmel", "das radio", "das netz",
-               "der wind", "das dach", "der markt", "der weg",
-               "der zug", "der hof", "der ofen", "der keller",
-               "der boden", "der strom", "der nebel", "der regen",
-               "der frost", "der mond", "das feld", "das ufer",
-               "das tal", "der teich", "die halle", "die kueche"],
-        "N2": ["der plan", "der nachbar", "der kollege", "der empfang",
-               "der turm", "der draht", "die huette", "die leitung",
-               "der schuppen", "der zaun", "der schalter", "die kiste",
-               "die lampe", "der schlauch", "der eimer", "der korb",
-               "der stecker", "die kette", "der riegel", "der deckel",
-               "die schaufel", "der hammer", "die leiter", "der pfosten",
-               "der bogen", "die schiene", "der knoten", "der rahmen",
-               "die klappe", "der spiegel", "die tuer", "der kasten"],
-        "A1": ["gut", "fein", "mau", "stark", "ruhig", "laut", "stetig", "klar",
-               "matt", "zaeh", "frisch", "flach", "dicht", "fest", "mild", "rau",
-               "schwach", "hart", "weich", "glatt", "steil", "eng", "breit", "tief",
-               "hoch", "kurz", "lang", "dumpf", "spitz", "grob", "zart", "schroff"],
-        "A2": ["warm", "kuehl", "still", "windig", "hell", "trueb", "trocken", "feucht",
-               "sonnig", "wolkig", "kalt", "lau", "diesig", "klamm", "schwuel", "frostig"],
-        "A3": ["bereit", "spaet", "nah", "fertig", "offen", "langsam", "knapp", "leer",
-               "voll", "frei", "sicher", "locker", "straff", "schief", "gerade", "sauber",
-               "neu", "alt", "heil", "krumm", "rund", "eckig", "leicht", "schwer",
-               "hohl", "massiv", "roh", "blank", "glatt", "stumpf", "warm", "kalt"],
-        "END": ["hier", "jetzt", "wieder", "noch", "heute", "gleich", "spaeter", "morgen",
-                "abends", "nachts", "drinnen", "draussen", "oben", "unten", "vorn", "hinten"],
-        "ADV2": ["gleich", "spaeter", "heute", "morgen", "abends", "nachts", "frueh", "bald",
-                 "jetzt", "dann", "kurz", "lange", "oft", "selten", "immer", "nie"],
+        "weather": {
+            "N1": [
+                "das wetter", "der himmel", "der regen", "der wind", "die sonne",
+                "die wolke", "das licht", "der nebel", "der schnee", "der frost",
+                "der sturm", "der mond", "der stern", "die luft", "der schatten",
+                "das eis", "der hagel", "der donner", "der blitz", "der tau", "die hitze",
+                "die kaelte", "die waerme", "die boe", "das gewitter", "der schauer",
+                "die daemmerung", "die feuchte", "das glatteis", "die nachtluft",
+                "die morgenluft", "die wolkendecke"
+            ],
+            "N2": [
+                "das dach", "die strasse", "das feld", "die wiese", "der bach",
+                "der huegel", "das tal", "das ufer", "der wald", "der pfad", "die kuppe",
+                "die senke", "die klippe", "die duene", "das moor", "die heide"
+            ],
+        },
+        "home": {
+            "N1": [
+                "der kaffee", "der tee", "das brot", "die suppe", "die pfanne", "der topf",
+                "der ofen", "der tisch", "der stuhl", "die lampe", "der teppich",
+                "das regal", "der schrank", "der herd", "der besen", "der becher",
+                "der teig", "der vorhang", "das sofa", "die spuele", "der kuehlschrank",
+                "der kessel", "der teller", "der loeffel", "das messer", "die gabel",
+                "die kanne", "die schuessel", "das backblech", "die muehle",
+                "das waschbecken", "der waeschekorb"
+            ],
+            "N2": [
+                "der flur", "die kueche", "die kammer", "der keller", "der boden",
+                "die treppe", "die tuer", "das fenster", "die wand", "die decke",
+                "die ecke", "die nische", "die diele", "die speisekammer",
+                "der abstellraum", "das badezimmer"
+            ],
+        },
+        "garden": {
+            "N1": [
+                "der garten", "das beet", "der rasen", "die hecke", "der baum",
+                "der strauch", "die blume", "die rose", "das kraut", "der salat",
+                "die tomate", "die kartoffel", "der apfel", "die birne", "die kirsche",
+                "das laub", "die tulpe", "die zwetschge", "die erdbeere", "die gurke",
+                "die bohne", "die erbse", "die moehre", "die zwiebel", "der knoblauch",
+                "der kompost", "die wurzel", "der samen", "die knospe", "die bluete",
+                "der zweig", "die rinde"
+            ],
+            "N2": [
+                "der schuppen", "der zaun", "das gartentor", "die giesskanne",
+                "die schaufel", "die harke", "die schubkarre", "das gewaechshaus",
+                "das hochbeet", "die regentonne", "die gartenbank", "die laube",
+                "die pergola", "das spalier", "das rankgitter", "der kiesweg"
+            ],
+        },
+        "work": {
+            "N1": [
+                "der plan", "der termin", "die sitzung", "der bericht", "die akte",
+                "die mappe", "die notiz", "die liste", "die aufgabe", "die frist",
+                "der vertrag", "die rechnung", "das angebot", "der kunde", "der kollege",
+                "die pause", "der chef", "die schicht", "das buero", "der schreibtisch",
+                "der drucker", "der ordner", "der kalender", "das protokoll",
+                "die vorlage", "der entwurf", "die freigabe", "die abnahme", "der urlaub",
+                "der dienstplan", "die ablage", "der posteingang"
+            ],
+            "N2": [
+                "die kantine", "der empfang", "das lager", "die werkstatt", "die halle",
+                "der aufzug", "der parkplatz", "die pforte", "das archiv",
+                "die poststelle", "der konferenzraum", "die teekueche", "der aushang",
+                "der dienstweg", "der schichtplan", "die zeiterfassung"
+            ],
+        },
+        "travel": {
+            "N1": [
+                "der zug", "der bus", "die bahn", "das gleis", "der bahnsteig",
+                "der fahrplan", "das ticket", "der koffer", "der rucksack", "die karte",
+                "die strecke", "der stau", "die ampel", "die kreuzung", "der hafen",
+                "die abfahrt", "die route", "die umleitung", "die tankstelle",
+                "die raststaette", "die autobahn", "die landstrasse", "die faehre",
+                "der flughafen", "das gepaeck", "der anschluss", "die verspaetung",
+                "die ankunft", "die haltestelle", "das fahrrad", "der roller",
+                "der wanderweg"
+            ],
+            "N2": [
+                "die bruecke", "der tunnel", "die kurve", "die steigung", "das gefaelle",
+                "der rastplatz", "die parkbucht", "die schranke", "die unterfuehrung",
+                "der wegweiser", "der meilenstein", "die grenze", "das zollhaus",
+                "die mautstelle", "der seitenstreifen", "die standspur"
+            ],
+        },
+        "tech": {
+            "N1": [
+                "das signal", "das band", "der funk", "die antenne", "das radio",
+                "das netz", "der strom", "das kabel", "der draht", "der sender",
+                "das rauschen", "der pegel", "die frequenz", "die batterie",
+                "der schalter", "der stecker", "der empfaenger", "der verstaerker",
+                "das filter", "die modulation", "der akku", "das ladegeraet",
+                "die platine", "die sicherung", "das messgeraet", "das oszilloskop",
+                "der loetkolben", "der widerstand", "der kondensator", "die spule",
+                "das relais", "das mikrofon"
+            ],
+            "N2": [
+                "der mast", "der turm", "die speisung", "die erdung", "das koaxkabel",
+                "der balun", "der tuner", "der dipol", "die yagi", "die groundplane",
+                "der vorverstaerker", "das netzteil", "das gehaeuse", "der luefter",
+                "der kuehlkoerper", "die steckdose"
+            ],
+        },
     },
     "en": {
-        "N1": ["the weather", "the signal", "the band", "the rig",
-               "the coffee", "the garden", "the antenna", "the traffic",
-               "the light", "the sky", "the radio", "the net",
-               "the wind", "the roof", "the market", "the path",
-               "the train", "the yard", "the stove", "the cellar",
-               "the floor", "the power", "the fog", "the rain",
-               "the frost", "the moon", "the field", "the shore",
-               "the valley", "the pond", "the hall", "the kitchen"],
-        "N2": ["the plan", "the neighbour", "the colleague", "the reception",
-               "the tower", "the wire", "the shack", "the line",
-               "the shed", "the fence", "the switch", "the crate",
-               "the lamp", "the hose", "the bucket", "the basket",
-               "the plug", "the chain", "the latch", "the lid",
-               "the shovel", "the hammer", "the ladder", "the post",
-               "the arch", "the rail", "the knot", "the frame",
-               "the flap", "the mirror", "the door", "the box"],
-        "A1": ["good", "fine", "poor", "strong", "quiet", "noisy", "steady", "clear",
-               "dull", "tough", "fresh", "flat", "dense", "firm", "mild", "rough",
-               "weak", "hard", "soft", "smooth", "steep", "narrow", "wide", "deep",
-               "high", "short", "long", "muffled", "sharp", "coarse", "tender", "harsh"],
-        "A2": ["warm", "cool", "calm", "windy", "bright", "cloudy", "dry", "damp",
-               "sunny", "overcast", "cold", "mellow", "hazy", "clammy", "muggy", "frosty"],
-        "A3": ["ready", "late", "close", "set", "open", "slow", "tight", "empty",
-               "full", "free", "safe", "loose", "taut", "crooked", "straight", "clean",
-               "new", "old", "whole", "bent", "round", "square", "light", "heavy",
-               "hollow", "solid", "raw", "plain", "smooth", "blunt", "warm", "cold"],
-        "END": ["here", "now", "again", "still", "today", "soon", "later", "tomorrow",
-                "tonight", "outside", "inside", "upstairs", "downstairs", "ahead",
-                "behind", "nearby"],
-        "ADV2": ["soon", "later", "today", "tomorrow", "tonight", "overnight", "early",
-                 "shortly", "now", "then", "briefly", "long", "often", "rarely",
-                 "always", "never"],
+        "weather": {
+            "N1": [
+                "the weather", "the sky", "the rain", "the wind", "the sun", "the cloud",
+                "the daylight", "the fog", "the snow", "the frost", "the storm",
+                "the moon", "the star", "the air", "the shade", "the ice", "the hail",
+                "the thunder", "the lightning", "the dew", "the heat", "the chill",
+                "the warmth", "the gust", "the drizzle", "the shower", "the dusk",
+                "the humidity", "the sleet", "the nightair", "the morningair",
+                "the greyness"
+            ],
+            "N2": [
+                "the roof", "the road", "the field", "the meadow", "the brook", "the hill",
+                "the valley", "the shore", "the wood", "the trail", "the ridge",
+                "the dell", "the cliff", "the dune", "the moor", "the heath"
+            ],
+        },
+        "home": {
+            "N1": [
+                "the coffee", "the tea", "the bread", "the soup", "the pan", "the pot",
+                "the oven", "the table", "the chair", "the lamp", "the carpet",
+                "the shelf", "the cupboard", "the stove", "the broom", "the mug",
+                "the dough", "the curtain", "the sofa", "the sink", "the fridge",
+                "the kettle", "the plate", "the spoon", "the knife", "the fork", "the jug",
+                "the bowl", "the tray", "the grinder", "the basin", "the hamper"
+            ],
+            "N2": [
+                "the hallway", "the kitchen", "the pantry", "the cellar", "the floor",
+                "the staircase", "the door", "the window", "the wall", "the ceiling",
+                "the corner", "the alcove", "the landing", "the larder", "the closet",
+                "the bathroom"
+            ],
+        },
+        "garden": {
+            "N1": [
+                "the garden", "the bed", "the lawn", "the hedge", "the tree", "the shrub",
+                "the flower", "the rose", "the herb", "the lettuce", "the tomato",
+                "the potato", "the apple", "the pear", "the cherry", "the leaf",
+                "the tulip", "the plum", "the strawberry", "the cucumber", "the bean",
+                "the pea", "the carrot", "the onion", "the garlic", "the compost",
+                "the root", "the seed", "the bud", "the blossom", "the twig", "the bark"
+            ],
+            "N2": [
+                "the shed", "the fence", "the gate", "the hose", "the spade", "the rake",
+                "the barrow", "the greenhouse", "the planter", "the waterbutt",
+                "the bench", "the arbour", "the pergola", "the trellis", "the lattice",
+                "the gravelpath"
+            ],
+        },
+        "work": {
+            "N1": [
+                "the plan", "the appointment", "the meeting", "the report", "the file",
+                "the folder", "the note", "the list", "the task", "the deadline",
+                "the contract", "the invoice", "the quote", "the client", "the colleague",
+                "the break", "the boss", "the shift", "the office", "the desk",
+                "the printer", "the binder", "the calendar", "the minutes", "the template",
+                "the draft", "the approval", "the handover", "the holiday", "the rota",
+                "the filing", "the inbox"
+            ],
+            "N2": [
+                "the canteen", "the reception", "the warehouse", "the workshop",
+                "the hall", "the lift", "the carpark", "the gatehouse", "the archive",
+                "the postroom", "the boardroom", "the kitchenette", "the noticeboard",
+                "the procedure", "the roster", "the timesheet"
+            ],
+        },
+        "travel": {
+            "N1": [
+                "the train", "the bus", "the tram", "the track", "the platform",
+                "the timetable", "the ticket", "the suitcase", "the rucksack", "the map",
+                "the route", "the jam", "the crossing", "the junction", "the harbour",
+                "the departure", "the leg", "the diversion", "the garage", "the services",
+                "the motorway", "the lane", "the ferry", "the airport", "the luggage",
+                "the connection", "the delay", "the arrival", "the stop", "the bicycle",
+                "the scooter", "the footpath"
+            ],
+            "N2": [
+                "the bridge", "the tunnel", "the bend", "the climb", "the descent",
+                "the layby", "the verge", "the barrier", "the underpass", "the signpost",
+                "the milestone", "the border", "the tollbooth", "the checkpoint",
+                "the hardshoulder", "the sliproad"
+            ],
+        },
+        "tech": {
+            "N1": [
+                "the signal", "the band", "the radio", "the antenna", "the network",
+                "the power", "the cable", "the wire", "the noise", "the level",
+                "the frequency", "the battery", "the switch", "the plug", "the fuse",
+                "the meter", "the receiver", "the transmitter", "the amplifier",
+                "the filter", "the modulation", "the charger", "the board", "the scope",
+                "the solder", "the resistor", "the capacitor", "the coil", "the relay",
+                "the microphone", "the mains", "the feed"
+            ],
+            "N2": [
+                "the mast", "the tower", "the feedline", "the earth", "the coax",
+                "the balun", "the tuner", "the dipole", "the yagi", "the groundplane",
+                "the preamp", "the psu", "the case", "the fan", "the heatsink",
+                "the socket"
+            ],
+        },
+    },
+}
+
+# Shared by every topic.
+SHARED_POOLS = {
+    "de": {
+        "A1": [
+            "gut", "fein", "mau", "stark", "ruhig", "laut", "stetig", "klar", "matt",
+            "zaeh", "frisch", "flach", "dicht", "fest", "mild", "rau", "schwach", "hart",
+            "weich", "glatt", "steil", "eng", "breit", "tief", "hoch", "kurz", "lang",
+            "dumpf", "spitz", "grob", "zart", "schroff"
+        ],
+        "A2": [
+            "warm", "kuehl", "still", "windig", "hell", "trueb", "trocken", "feucht",
+            "sonnig", "wolkig", "kalt", "lau", "diesig", "klamm", "schwuel", "frostig"
+        ],
+        "A3": [
+            "bereit", "spaet", "nah", "fertig", "offen", "langsam", "knapp", "leer",
+            "voll", "frei", "sicher", "locker", "straff", "schief", "gerade", "sauber",
+            "neu", "alt", "heil", "krumm", "rund", "eckig", "leicht", "schwer", "hohl",
+            "massiv", "roh", "blank", "stumpf", "wach", "muede", "still"
+        ],
+        "END": [
+            "hier", "jetzt", "wieder", "noch", "heute", "gleich", "spaeter", "morgen",
+            "abends", "nachts", "drinnen", "draussen", "oben", "unten", "vorn", "hinten"
+        ],
+        "ADV2": [
+            "gleich", "spaeter", "heute", "morgen", "abends", "nachts", "frueh", "bald",
+            "jetzt", "dann", "eben", "stets", "oft", "selten", "immer", "nie"
+        ],
+    },
+    "en": {
+        "A1": [
+            "good", "fine", "poor", "strong", "quiet", "noisy", "steady", "clear", "dull",
+            "tough", "fresh", "flat", "dense", "firm", "mild", "rough", "weak", "hard",
+            "soft", "smooth", "steep", "narrow", "wide", "deep", "high", "short", "long",
+            "muffled", "sharp", "coarse", "tender", "harsh"
+        ],
+        "A2": [
+            "warm", "cool", "calm", "windy", "bright", "cloudy", "dry", "damp", "sunny",
+            "overcast", "cold", "mellow", "hazy", "clammy", "muggy", "frosty"
+        ],
+        "A3": [
+            "ready", "late", "close", "set", "open", "slow", "tight", "empty", "full",
+            "free", "safe", "loose", "taut", "crooked", "straight", "clean", "new", "old",
+            "whole", "bent", "round", "square", "light", "heavy", "hollow", "solid", "raw",
+            "plain", "blunt", "awake", "weary", "silent"
+        ],
+        "END": [
+            "here", "now", "again", "still", "today", "soon", "later", "tomorrow",
+            "tonight", "outside", "inside", "upstairs", "downstairs", "ahead", "behind",
+            "nearby"
+        ],
+        "ADV2": [
+            "soon", "later", "today", "tomorrow", "tonight", "overnight", "early",
+            "shortly", "now", "then", "briefly", "lately", "often", "rarely", "always",
+            "never"
+        ],
     },
 }
 
 # Slot name -> word list.  A "b" prefix renders the form without its article.
+# N1/N2 come from the topic, everything else from the shared pools.
 SLOT_POOL = {"n1": "N1", "b1": "N1", "n2": "N2", "b2": "N2",
              "a1": "A1", "a2": "A2", "a3": "A3", "end": "END", "adv2": "ADV2"}
 
 # {slot:count} -- count is the prefix length used and must be a power of two.
-# Templates contain NO punctuation at all: every character has to survive the
-# transport untouched, and a comma is exactly the kind of thing a radio or chat
-# path quietly drops or substitutes.  Letters and single spaces only.
-# Each level offers SEVERAL sentence shapes of identical word count and
-# identical bit width.  Which one is used is itself part of the payload, so the
-# variety is free -- it adds log2(count) bits per sentence rather than costing
-# anything.  Without this every line of a long cover had the same shape, which
-# is what gives a text cover away to a human reader faster than anything else.
-# Shapes at one level must be mutually exclusive; the selftest checks that.
+# No punctuation anywhere: every character has to survive the transport, and
+# a comma is exactly what a radio or chat path quietly drops.
+#
+# Each level offers several shapes of identical word count and bit width, and
+# which one is used is itself part of the payload -- so the variety is free,
+# adding log2(count) bits per sentence rather than costing anything. Levels 0
+# to 2 get four verbs times two word orders; level 3 permutes its word pairs.
 TEMPLATES = {
     "de": [
-        ["{n1:16} ist {a1:8} {end:8}",                                   # 10+1 bits
-         "{end:8} ist {n1:16} {a1:8}"],
-        ["{n1:32} ist {a1:16} {end:16}",                                 # 13+1 bits
-         "{end:16} ist {n1:32} {a1:16}"],
-        ["{n1:32} ist {a1:32} und {n2:32} {a3:32}",                      # 20+1 bits
-         "{n2:32} ist {a3:32} und {n1:32} {a1:32}"],
-        ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",            # 28+1 bits
-         "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
+        [
+            "{n1:16} ist {a1:8} {end:8}",
+            "{n1:16} war {a1:8} {end:8}",
+            "{n1:16} bleibt {a1:8} {end:8}",
+            "{n1:16} wirkt {a1:8} {end:8}",
+            "{end:8} ist {n1:16} {a1:8}",
+            "{end:8} war {n1:16} {a1:8}",
+            "{end:8} bleibt {n1:16} {a1:8}",
+            "{end:8} wirkt {n1:16} {a1:8}",
+        ],
+        [
+            "{n1:32} ist {a1:16} {end:16}",
+            "{n1:32} war {a1:16} {end:16}",
+            "{n1:32} bleibt {a1:16} {end:16}",
+            "{n1:32} wirkt {a1:16} {end:16}",
+            "{end:16} ist {n1:32} {a1:16}",
+            "{end:16} war {n1:32} {a1:16}",
+            "{end:16} bleibt {n1:32} {a1:16}",
+            "{end:16} wirkt {n1:32} {a1:16}",
+        ],
+        [
+            "{b1:32} ist {a1:16} {a2:16} {end:16}",
+            "{b1:32} war {a1:16} {a2:16} {end:16}",
+            "{b1:32} bleibt {a1:16} {a2:16} {end:16}",
+            "{b1:32} wirkt {a1:16} {a2:16} {end:16}",
+            "{end:16} ist {b1:32} {a1:16} {a2:16}",
+            "{end:16} war {b1:32} {a1:16} {a2:16}",
+            "{end:16} bleibt {b1:32} {a1:16} {a2:16}",
+            "{end:16} wirkt {b1:32} {a1:16} {a2:16}",
+        ],
+        [
+            "{b1:32} {a1:32} {adv2:16} {a2:16}",
+            "{adv2:16} {a2:16} {b1:32} {a1:32}",
+            "{b1:32} {a2:16} {adv2:16} {a1:32}",
+            "{adv2:16} {a1:32} {b1:32} {a2:16}",
+            "{a1:32} {b1:32} {adv2:16} {a2:16}",
+            "{a2:16} {b1:32} {adv2:16} {a1:32}",
+            "{adv2:16} {b1:32} {a1:32} {a2:16}",
+            "{adv2:16} {b1:32} {a2:16} {a1:32}",
+        ],
     ],
     "en": [
-        ["{n1:16} is {a1:8} {end:8}",
-         "{end:8} {n1:16} is {a1:8}"],
-        ["{n1:32} is {a1:16} {end:16}",
-         "{end:16} {n1:32} is {a1:16}"],
-        ["{n1:32} is {a1:32} and {n2:32} {a3:32}",
-         "{n2:32} is {a3:32} and {n1:32} {a1:32}"],
-        ["{b1:32} {a1:32} {b2:32} {a3:32} {adv2:16} {a2:16}",
-         "{adv2:16} {a2:16} {b2:32} {a3:32} {b1:32} {a1:32}"],
+        [
+            "{n1:16} is {a1:8} {end:8}",
+            "{n1:16} was {a1:8} {end:8}",
+            "{n1:16} stays {a1:8} {end:8}",
+            "{n1:16} seems {a1:8} {end:8}",
+            "{end:8} {n1:16} is {a1:8}",
+            "{end:8} {n1:16} was {a1:8}",
+            "{end:8} {n1:16} stays {a1:8}",
+            "{end:8} {n1:16} seems {a1:8}",
+        ],
+        [
+            "{n1:32} is {a1:16} {end:16}",
+            "{n1:32} was {a1:16} {end:16}",
+            "{n1:32} stays {a1:16} {end:16}",
+            "{n1:32} seems {a1:16} {end:16}",
+            "{end:16} {n1:32} is {a1:16}",
+            "{end:16} {n1:32} was {a1:16}",
+            "{end:16} {n1:32} stays {a1:16}",
+            "{end:16} {n1:32} seems {a1:16}",
+        ],
+        [
+            "{b1:32} is {a1:16} {a2:16} {end:16}",
+            "{b1:32} was {a1:16} {a2:16} {end:16}",
+            "{b1:32} stays {a1:16} {a2:16} {end:16}",
+            "{b1:32} seems {a1:16} {a2:16} {end:16}",
+            "{end:16} {b1:32} is {a1:16} {a2:16}",
+            "{end:16} {b1:32} was {a1:16} {a2:16}",
+            "{end:16} {b1:32} stays {a1:16} {a2:16}",
+            "{end:16} {b1:32} seems {a1:16} {a2:16}",
+        ],
+        [
+            "{b1:32} {a1:32} {adv2:16} {a2:16}",
+            "{adv2:16} {a2:16} {b1:32} {a1:32}",
+            "{b1:32} {a2:16} {adv2:16} {a1:32}",
+            "{adv2:16} {a1:32} {b1:32} {a2:16}",
+            "{a1:32} {b1:32} {adv2:16} {a2:16}",
+            "{a2:16} {b1:32} {adv2:16} {a1:32}",
+            "{adv2:16} {b1:32} {a1:32} {a2:16}",
+            "{adv2:16} {b1:32} {a2:16} {a1:32}",
+        ],
     ],
 }
 
 _SLOT_RE = re.compile(r"\{(\w+):(\d+)\}")
 
-def _build_shape(lang, tpl):
-    pools = POOLS[lang]
+def _build_shape(lang, topic, tpl):
+    pools = dict(SHARED_POOLS[lang], **TOPIC_WORDS[lang][topic])
     slots, bits = [], 0
     pat, last = "", 0
     for m in _SLOT_RE.finditer(tpl):
@@ -307,15 +574,20 @@ def _build(lang):
         if n & (n - 1):
             raise ValueError(f"{lang}: sentence shapes per level must be a power of two")
         sel = n.bit_length() - 1
-        shapes = [_build_shape(lang, v) for v in variants]
-        base = {s["bits"] for s in shapes}
+        # One compiled shape per (variant, topic).  The bit layout is identical
+        # across topics, so the topic itself carries no information -- which is
+        # exactly why sender and receiver need not agree on the selection.
+        shapes = [{tp: _build_shape(lang, tp, v) for tp in TOPIC_ORDER}
+                  for v in variants]
+        base = {s["bits"] for v in shapes for s in v.values()}
         if len(base) != 1:
             raise ValueError(f"{lang}: sentence shapes of one level must carry "
                              f"the same number of bits, got {sorted(base)}")
         # Every shape has a fixed word count, and all shapes of a level must
         # agree on it -- that is what lets the decoder work on a stream of words
         # instead of on lines.
-        toks = {len(_render_shape(s, [0] * s["bits"]).split()) for s in shapes}
+        toks = {len(_render_shape(s, [0] * s["bits"]).split())
+                for v in shapes for s in v.values()}
         if len(toks) != 1:
             raise ValueError(f"{lang}: sentence shapes of one level must have "
                              f"the same word count, got {sorted(toks)}")
@@ -335,12 +607,13 @@ def _render_shape(shape, bits):
     it = iter(words)
     return _SLOT_RE.sub(lambda m: next(it), shape["tpl"])
 
-def render_sentence(lv, bits):
-    """The leading bits pick the sentence shape, the rest fill its slots."""
+def render_sentence(lv, bits, topic="weather"):
+    """The leading bits pick the sentence shape, the rest fill its slots.  The
+    topic decides only which words are used, never what they mean."""
     sel = 0
     for i in range(lv["sel"]):
         sel = (sel << 1) | bits[i]
-    return _render_shape(lv["shapes"][sel], bits[lv["sel"]:])
+    return _render_shape(lv["shapes"][sel][topic], bits[lv["sel"]:])
 
 # A client may prefix a line with a callsign ("KN4CRD: ") or a quote marker
 # ("> ").  Cover sentences never contain ":" or ">", so stripping such a prefix
@@ -355,32 +628,60 @@ def clean_line(line):
     s = _PREFIX_RE.sub("", line.strip().lower())
     return re.sub(r"\s+", " ", _PUNCT_RE.sub(" ", s)).strip()
 
-def _match(lv, s):
-    """Which shape does this sentence have, and what bits does it carry?"""
-    for k, shape in enumerate(lv["shapes"]):
-        m = shape["re"].match(s)
-        if not m:
-            continue
-        bits = [(k >> b) & 1 for b in range(lv["sel"] - 1, -1, -1)]
-        for i, sl in enumerate(shape["slots"]):
-            v = sl["opts"].index(m.group(i + 1))
-            for b in range(sl["width"] - 1, -1, -1):
-                bits.append((v >> b) & 1)
-        return bits
+def _match(lv, s, topics):
+    """Which shape does this sentence have, and what bits does it carry?  The
+    topic comes from the nouns, so any cover decodes regardless of which topics
+    its sender had switched on."""
+    for k, variant in enumerate(lv["shapes"]):
+        for topic in topics:
+            m = variant[topic]["re"].match(s)
+            if not m:
+                continue
+            bits = [(k >> b) & 1 for b in range(lv["sel"] - 1, -1, -1)]
+            for i, sl in enumerate(variant[topic]["slots"]):
+                v = sl["opts"].index(m.group(i + 1))
+                for b in range(sl["width"] - 1, -1, -1):
+                    bits.append((v >> b) & 1)
+            return bits
     return None
 
-def parse_sentence(lv, line):
-    return _match(lv, clean_line(line))
+def _candidate_topics(lang, words):
+    seen = []
+    idx = NOUN_TOPIC[lang]
+    for w in words:
+        tp = idx.get(w)
+        if tp is not None and tp not in seen:
+            seen.append(tp)
+    return seen
 
-def parse_at(lv, toks, pos):
+def parse_sentence(lv, line, lang):
+    s = clean_line(line)
+    return _match(lv, s, _candidate_topics(lang, s.split(" ")))
+
+def parse_at(lv, toks, pos, lang):
     """Try to read one sentence out of the word stream starting at pos."""
     n = lv["tokens"]
     if pos + n > len(toks):
         return None
-    return _match(lv, " ".join(toks[pos:pos + n]))
+    window = toks[pos:pos + n]
+    cands = _candidate_topics(lang, window)
+    if not cands:
+        return None
+    return _match(lv, " ".join(window), cands)
 
 # _build needs render_sentence to measure each template's word count, so the
 # grammars are built here rather than next to _build.
+def _noun_index(lang):
+    """Bare noun -> topic.  Lets the parser go straight to the one topic a
+    sentence can possibly belong to instead of trying all six."""
+    idx = {}
+    for topic in TOPIC_ORDER:
+        for key in ("N1", "N2"):
+            for w in TOPIC_WORDS[lang][topic][key]:
+                idx[w.split(" ", 1)[1]] = topic
+    return idx
+
+NOUN_TOPIC = {"de": _noun_index("de"), "en": _noun_index("en")}
 GRAMMARS = {"de": _build("de"), "en": _build("en")}
 LEVELS = range(len(TEMPLATES["de"]))
 
@@ -490,14 +791,17 @@ def parse_frame(raw, buf, bnonce):
         return None
     return idx, payload
 
-def render_run(lv, frame, nbits, pad):
-    """Bit field -> sentences; fill the last sentence's spare capacity from pad."""
+def render_run(lv, frame, nbits, pad, topics):
+    """Bit field -> sentences; fill the last sentence's spare capacity from pad.
+    A topic is drawn per sentence, so a cover wanders between subjects the way
+    real chatter does instead of hammering one."""
     bits = bytes_to_bits(frame)[:nbits]
     n = math.ceil(nbits / lv["bits"])
     need = n * lv["bits"] - nbits
     if need > 0:
         bits = bits + bytes_to_bits(pad)[:need]
-    return [render_sentence(lv, bits[i * lv["bits"]:(i + 1) * lv["bits"]])
+    return [render_sentence(lv, bits[i * lv["bits"]:(i + 1) * lv["bits"]],
+                            topics[secrets.randbelow(len(topics))])
             for i in range(n)]
 
 def sentences_for(lv, nbits):
@@ -509,9 +813,17 @@ def apply_profile(txt, profile):
     case.  Casing carries no data; the decoder lower-cases everything anyway."""
     return txt.upper() if profile == "js8call" else txt.lower()
 
-def encode(secret, key, lang="de", profile="plain", level=1, parity=2):
+def encode(secret, key, lang="de", profile="plain", level=1, parity=2, topics=None):
+    """`topics` only decides which words the cover is built from.  It carries no
+    data, so the receiver does not need to know or match it."""
     raw = key["raw"]
     lv = GRAMMARS[lang][level]
+    topics = list(topics or DEFAULT_TOPICS)
+    unknown = [t for t in topics if t not in TOPIC_ORDER]
+    if unknown:
+        raise ValueError(f"unknown topic(s): {', '.join(unknown)}")
+    if not topics:
+        raise ValueError("at least one topic must be selected")
     ct, comp = encrypt_msg(secret, key)
     ctlen = len(ct)
     padded = ct + b"\x00" * ((-ctlen) % CHUNK)
@@ -542,17 +854,18 @@ def encode(secret, key, lang="de", profile="plain", level=1, parity=2):
         mnonce = os.urandom(MNONCE_LEN)
         buf = build_manifest(raw, K, R, ctlen, bnonce, mnonce, comp)
         pad = ks_pad(raw, bnonce, 0xff, pad_bytes)
-        return {"lines": render_run(lv, buf, MANIFEST_BITS, pad)}
+        return {"lines": render_run(lv, buf, MANIFEST_BITS, pad, topics)}
 
     sections = [manifest_section()]
     for i in range(tot):
         buf = build_frame(raw, i, allb[i], bnonce)
         pad = ks_pad(raw, bnonce, i, pad_bytes)
-        sections.append({"lines": render_run(lv, buf, FRAME_BITS, pad), "block": i})
+        sections.append({"lines": render_run(lv, buf, FRAME_BITS, pad, topics), "block": i})
     sections.append(manifest_section())
 
-    return {"sections": sections, "K": K, "R": R, "tot": tot,
-            "ctlen": ctlen, "level": level, "lang": lang, "profile": profile}
+    return {"sections": sections, "K": K, "R": R, "tot": tot, "ctlen": ctlen,
+            "level": level, "lang": lang, "profile": profile, "topics": topics,
+            "comp": comp}
 
 def cover_to_text(enc, sections=None):
     """Cover as text -- nothing but carrier sentences, no framing lines of any
@@ -591,12 +904,12 @@ def _foreign_chars(cover_text):
         seen.update(c for c in s if not (c == " " or ("a" <= c <= "z")))
     return sorted(seen)
 
-def _read_run(lv, toks, pos, n_sent):
+def _read_run(lv, toks, pos, n_sent, lang):
     """Read n_sent consecutive sentences from the word stream at pos."""
     bits = []
     step = lv["tokens"]
     for s in range(n_sent):
-        pb = parse_at(lv, toks, pos + s * step)
+        pb = parse_at(lv, toks, pos + s * step, lang)
         if pb is None:
             return None
         bits += pb
@@ -616,7 +929,7 @@ def _find_manifest(raw, toks):
             hit, spans = None, []
             i = 0
             while i + span <= n:
-                bits = _read_run(lv, toks, i, n_sent)
+                bits = _read_run(lv, toks, i, n_sent, lang)
                 if bits is not None:
                     man = parse_manifest(raw, bits_to_bytes(bits[:MANIFEST_BITS]))
                     if man is not None:
@@ -668,7 +981,7 @@ def decode(cover_text, key):
         if any(x in blocked for x in range(i, i + span)):
             i += 1
             continue
-        bits = _read_run(lv, toks, i, n_sent)
+        bits = _read_run(lv, toks, i, n_sent, lang)
         if bits is not None:
             fr = parse_frame(raw, bits_to_bytes(bits[:FRAME_BITS]), bnonce)
             if fr is not None and fr[0] < tot and fr[0] not in found:
@@ -779,21 +1092,40 @@ def _selftest():
           f"warned: {bool(r6.get('warning'))}")
     ok_all &= bool(r6.get("ok") and r6.get("message") == "Meet at six" and r6.get("warning"))
 
-    # every sentence must match exactly one shape, or decoding is a coin flip
+    # Every sentence must match exactly one (shape, topic), or decoding is a
+    # coin flip.  This is the rule the whole topic feature rests on.
     import random
     amb = []
     for lang in ("de", "en"):
         for level, lv in enumerate(GRAMMARS[lang]):
-            for _ in range(400):
-                bits = [random.randint(0, 1) for _ in range(lv["bits"])]
-                s = render_sentence(lv, bits)
-                hits = sum(1 for sh in lv["shapes"] if sh["re"].match(s))
-                if hits != 1 or _match(lv, s) != bits:
-                    amb.append(f"{lang} L{level}: {s!r} matched {hits}")
+            for topic in TOPIC_ORDER:
+                for _ in range(120):
+                    bits = [random.randint(0, 1) for _ in range(lv["bits"])]
+                    s = render_sentence(lv, bits, topic)
+                    hits = sum(1 for v in lv["shapes"] for tp in TOPIC_ORDER
+                               if v[tp]["re"].match(s))
+                    if hits != 1:
+                        amb.append(f"{lang} L{level}/{topic}: {s!r} matched {hits}")
+                        break
+                    if parse_sentence(lv, s, lang) != bits:
+                        amb.append(f"{lang} L{level}/{topic}: {s!r} lost its bits")
+                        break
+                if amb:
                     break
-    print(f"[sentence shapes] unambiguous and reversible: "
+    print(f"[sentence shapes] unambiguous across all topics: "
           f"{'yes' if not amb else 'NO -- ' + '; '.join(amb)}")
     ok_all &= not amb
+
+    # A receiver must not need the sender's topic selection.
+    mixed = encode("Meet at six", key, lang="en", level=1, parity=2,
+                   topics=["weather", "home"])
+    r_mix = decode(cover_to_text(mixed), key)
+    afu = encode("Meet at six", key, lang="en", level=1, parity=2, topics=AFU_TOPICS)
+    r_afu = decode(cover_to_text(afu), key)
+    both = r_mix.get("message") == "Meet at six" and r_afu.get("message") == "Meet at six"
+    print(f"[topic independence] a cover decodes whatever topics its sender used: "
+          f"{'yes' if both else 'NO'}")
+    ok_all &= both
 
     # deflate must never make the ciphertext bigger than the raw message
     for probe in ("hi", "Meet at six", "Treffen Sonntag 18 Uhr am alten Hafen",
@@ -849,6 +1181,12 @@ def _main():
     pe.add_argument("--parity", type=int, default=2)
     pe.add_argument("--allow-weak-pass", action="store_true",
                     help="encode even with a passphrase below the minimum length")
+    pe.add_argument("--topics", default=",".join(DEFAULT_TOPICS),
+                    metavar="A,B,...",
+                    help="cover vocabulary: " + ", ".join(TOPIC_ORDER)
+                         + " (default: everything but tech)")
+    pe.add_argument("--afu", action="store_true",
+                    help="amateur-radio mode: use the tech vocabulary only")
     pe.add_argument("--profile", choices=["js8call", "plain"], default="plain",
                     help="plain=lower case (default), js8call=upper case")
 
@@ -875,8 +1213,9 @@ def _main():
     key = derive_key(args.passphrase)
     if args.cmd == "encode":
         msg = " ".join(args.message) if args.message else sys.stdin.read().rstrip("\n")
+        topics = AFU_TOPICS if args.afu else [t.strip() for t in args.topics.split(",") if t.strip()]
         enc = encode(msg, key, lang=args.lang, profile=args.profile,
-                     level=args.level, parity=args.parity)
+                     level=args.level, parity=args.parity, topics=topics)
         print(cover_to_text(enc))
     elif args.cmd == "decode":
         res = decode(sys.stdin.read(), key)

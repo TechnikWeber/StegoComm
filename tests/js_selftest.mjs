@@ -1,8 +1,9 @@
 /* Exercises the browser engine on its own: round-trip, parity recovery, NACK,
    manifest redundancy, resynchronisation, transport damage, and the grammar's
    internal consistency. */
-import { GRAMMARS, deriveKey, encode, decode, coverToText, renderSentence,
-         matchSentence, PASS, CASES, rewrap } from "./engine.mjs";
+import { GRAMMARS, TOPIC_ORDER, DEFAULT_TOPICS, AFU_TOPICS, deriveKey, encode,
+         decode, coverToText, renderSentence, parseSentence, PASS, CASES,
+         rewrap, NOUN_TOPIC } from "./engine.mjs";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -13,19 +14,53 @@ const check = (name, ok, detail = "") => {
 const key = await deriveKey(PASS);
 
 console.log("grammar");
+/* Every sentence must match exactly one (shape, topic) pair, or decoding is a
+   coin flip. This is the rule the whole topic feature rests on. */
 for (const lang of ["de", "en"]) {
   for (let level = 0; level < GRAMMARS[lang].length; level++) {
     const lv = GRAMMARS[lang][level];
     let bad = null;
-    for (let i = 0; i < 500 && !bad; i++) {
-      const bits = Array.from({ length: lv.bits }, () => Math.random() < 0.5 ? 0 : 1);
-      const s = renderSentence(lv, bits);
-      const hits = lv.shapes.filter(sh => sh._re.exec(s)).length;
-      if (hits !== 1) bad = `${JSON.stringify(s)} matched ${hits} shapes`;
-      else if (JSON.stringify(matchSentence(lv, s)) !== JSON.stringify(bits))
-        bad = `${JSON.stringify(s)} did not round-trip its bits`;
+    for (const topic of TOPIC_ORDER) {
+      for (let i = 0; i < 120 && !bad; i++) {
+        const bits = Array.from({ length: lv.bits }, () => Math.random() < 0.5 ? 0 : 1);
+        const s = renderSentence(lv, bits, topic);
+        let hits = 0;
+        for (const variant of lv.shapes)
+          for (const tp of TOPIC_ORDER) if (variant[tp]._re.exec(s)) hits++;
+        if (hits !== 1) bad = `${JSON.stringify(s)} matched ${hits} (shape, topic) pairs`;
+        else if (JSON.stringify(parseSentence(lv, s, lang)) !== JSON.stringify(bits))
+          bad = `${JSON.stringify(s)} did not round-trip its bits`;
+      }
+      if (bad) break;
     }
-    check(`${lang} L${level}: shapes unambiguous and reversible`, !bad, bad || "");
+    check(`${lang} L${level}: shapes unambiguous across all topics`, !bad, bad || "");
+  }
+}
+
+console.log("topic independence");
+/* The point of the design: the topic selection is sender-side only. A receiver
+   never learns or needs it, so two people with different boxes ticked still
+   understand each other. */
+{
+  const k = await deriveKey(PASS);
+  const secret = "Meet Sunday 6pm at the old harbour";
+  for (const [name, topics] of [
+    ["every topic", TOPIC_ORDER],
+    ["default set", DEFAULT_TOPICS],
+    ["AFU mode (tech only)", AFU_TOPICS],
+    ["one topic", ["garden"]],
+    ["two topics", ["weather", "home"]],
+  ]) {
+    const e = await encode(secret, k, "en", "plain", 1, 2, topics);
+    const cover = coverToText(e);
+    const r = await decode(cover, k);
+    check(`a cover built from ${name} decodes without that setting`,
+          r.ok && r.message === secret);
+    // ...and the selection really did restrict the vocabulary
+    const alien = [...new Set(cover.split(/\s+/).filter(Boolean))]
+      .filter(w => NOUN_TOPIC.en[w] && !topics.includes(NOUN_TOPIC.en[w]));
+    check(`...and drew only on ${topics.length} topic(s)`, !alien.length,
+          alien.slice(0, 4).join(", "));
   }
 }
 

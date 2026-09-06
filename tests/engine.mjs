@@ -16,13 +16,15 @@ if (cut < 0) throw new Error("UI marker not found in cover_studio.html");
 
 const mod = await import("data:text/javascript;base64," + Buffer.from(
   script[1].slice(0, cut) +
-  "\nexport {GRAMMARS, POOLS, TEMPLATES, deriveKey, encode, decode, coverToText," +
-  " renderSentence, matchSentence};"
+  "\nexport {GRAMMARS, TOPIC_WORDS, SHARED_POOLS, TEMPLATES, TOPIC_ORDER," +
+  " DEFAULT_TOPICS, AFU_TOPICS, deriveKey, encode, decode, coverToText," +
+  " renderSentence, matchSentence, parseSentence, NOUN_TOPIC};"
 ).toString("base64"));
 
 export const {
-  GRAMMARS, POOLS, TEMPLATES, deriveKey, encode, decode, coverToText,
-  renderSentence, matchSentence,
+  GRAMMARS, TOPIC_WORDS, SHARED_POOLS, TEMPLATES, TOPIC_ORDER,
+  DEFAULT_TOPICS, AFU_TOPICS, deriveKey, encode, decode, coverToText,
+  renderSentence, matchSentence, parseSentence, NOUN_TOPIC,
 } = mod;
 
 /* The passphrase used across the tests. Long enough to pass the strength check
