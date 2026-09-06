@@ -149,15 +149,15 @@
           <div>
             <label class="field">Cover language</label>
             <div class="seg" id="lang">
-              <button data-v="de" aria-pressed="true">German</button>
-              <button data-v="en" aria-pressed="false">English</button>
+              <button data-v="en" aria-pressed="true">English</button>
+              <button data-v="de" aria-pressed="false">German</button>
             </div>
           </div>
           <div>
             <label class="field">Channel</label>
             <div class="seg" id="profile">
-              <button data-v="js8call" aria-pressed="true">JS8Call</button>
-              <button data-v="plain" aria-pressed="false">Plain</button>
+              <button data-v="plain" aria-pressed="true">Plain</button>
+              <button data-v="js8call" aria-pressed="false">JS8Call</button>
             </div>
           </div>
         </div>
@@ -424,7 +424,12 @@ const GRAMMARS = {};
         last=m.index+m[0].length;
       }
       pat+=escapeRe(tpl.slice(last));
-      return {tpl, slots, bits, _re:new RegExp("^"+pat+"$")};
+      const lv={tpl, slots, bits, _re:new RegExp("^"+pat+"$")};
+      /* Every template has a fixed word count (all nouns are article+noun or
+         bare, all other slots are single words). That is what lets the decoder
+         work on a stream of words instead of on lines. */
+      lv.tokens=renderSentence(lv, new Array(bits).fill(0)).split(" ").length;
+      return lv;
     });
   }
 })();
@@ -442,19 +447,39 @@ function renderSentence(lv, bits){
    ("> "). Cover sentences never contain ":" or ">", so stripping such a prefix
    can never damage a genuine sentence. */
 const PREFIX_RE=/^[>\s]*(?:[a-z0-9/\-]{1,12}\s*[:>]\s*)?/;
-const TRAIL_RE=/[.!?,;:\s]+$/;
+const PUNCT_RE=/[.!?,;:"'()\[\]<>_*]+/g;
 /* Fold away what a transport typically changes: casing, a leading callsign or
-   quote marker, trailing punctuation, and runs of whitespace. Anything beyond
-   that is real damage and costs the block. */
+   quote marker, punctuation of any kind, and runs of whitespace. The grammar
+   emits none of that, so removing it can never destroy information. */
 function cleanLine(line){
-  return line.trim().toLowerCase().replace(PREFIX_RE,"").replace(TRAIL_RE,"").replace(/\s+/g," ");
+  return line.trim().toLowerCase().replace(PREFIX_RE,"")
+             .replace(PUNCT_RE," ").replace(/\s+/g," ").trim();
 }
-function parseSentence(lv, line){
-  const m=lv._re.exec(cleanLine(line));
-  if(!m) return null;
+function bitsFrom(lv, m){
   const bits=[];
   lv.slots.forEach((s,i)=>{ const v=s.opts.indexOf(m[i+1]);
     for(let b=s.width-1;b>=0;b--) bits.push((v>>b)&1); });
+  return bits;
+}
+function parseSentence(lv, line){
+  const m=lv._re.exec(cleanLine(line));
+  return m ? bitsFrom(lv,m) : null;
+}
+/* Try to read one sentence out of the word stream starting at pos. */
+function parseAt(lv, toks, pos){
+  const n=lv.tokens;
+  if(pos+n>toks.length) return null;
+  const m=lv._re.exec(toks.slice(pos,pos+n).join(" "));
+  return m ? bitsFrom(lv,m) : null;
+}
+/* Read nSent consecutive sentences from the word stream at pos. */
+function readRun(lv, toks, pos, nSent){
+  let bits=[];
+  for(let s=0;s<nSent;s++){
+    const pb=parseAt(lv, toks, pos+s*lv.tokens);
+    if(pb===null) return null;
+    bits=bits.concat(pb);
+  }
   return bits;
 }
 
@@ -626,8 +651,17 @@ function coverToText(enc, sections){
   return parts.join("\n");
 }
 
-function normLines(t){
-  return t.split(/\r?\n/).filter(l=>l.trim().length).map(cleanLine);
+/* The whole cover as one stream of words. Line breaks carry no information, so
+   a transport that reflows, wraps or joins lines cannot hurt — the sentences are
+   recovered from the word sequence alone. */
+function tokenize(t){
+  const toks=[];
+  for(const l of t.split(/\r?\n/)){
+    if(!l.trim()) continue;
+    const s=cleanLine(l);
+    if(s) toks.push(...s.split(" "));
+  }
+  return toks;
 }
 /* Characters the grammar never produces. Their presence means the text was
    altered on the way — the most common reason decoding fails, and one that
@@ -642,21 +676,20 @@ function foreignChars(t){
   return [...seen].sort();
 }
 
-/* Tries every (language, level) and slides a window over the text; the
-   manifest CRC16 decides. */
-async function findManifest(raw, lines){
-  const n=lines.length;
+/* Tries every (language, level) and slides a window over the word stream; the
+   manifest CRC16 decides. Sliding by a single word is what lets the decoder
+   re-align after damage of any kind. */
+async function findManifest(raw, toks){
+  const n=toks.length;
   for(const lang of ["de","en"]){
     for(let level=0; level<GRAMMARS[lang].length; level++){
       const lv=GRAMMARS[lang][level];
-      const span=sentencesFor(lv, MANIFEST_BITS);
+      const nSent=sentencesFor(lv, MANIFEST_BITS), span=nSent*lv.tokens;
       let hit=null; const spans=[];
       let i=0;
       while(i+span<=n){
-        let bits=[], ok=true;
-        for(let s=0;s<span;s++){ const pb=parseSentence(lv, lines[i+s]);
-          if(pb===null){ ok=false; break; } bits=bits.concat(pb); }
-        if(ok){
+        const bits=readRun(lv, toks, i, nSent);
+        if(bits!==null){
           const man=await parseManifest(raw, bitsToBytes(bits.slice(0,MANIFEST_BITS)));
           if(man){ if(!hit) hit=man; spans.push([i,i+span]); i+=span; continue; }
         }
@@ -670,14 +703,14 @@ async function findManifest(raw, lines){
 
 async function decode(coverText, keyObj){
   const raw=keyObj.raw;
-  const lines=normLines(coverText);
+  const toks=tokenize(coverText);
   const foreign=foreignChars(coverText);
   const warning=foreign.length
     ? "The text contains characters this tool never produces ("+foreign.join(" ")+") — "
       +"something on the transport path altered it. Trailing punctuation is tolerated; "
       +"anything else costs the affected block."
     : null;
-  const f=await findManifest(raw, lines);
+  const f=await findManifest(raw, toks);
   if(!f) return {ok:false, warning, error: foreign.length
     ? "No valid manifest found. The text contains characters this tool never produces ("
       +foreign.join(" ")+"), so the transport path most likely altered it — the passphrase may well be fine."
@@ -685,23 +718,19 @@ async function decode(coverText, keyObj){
   const {man, lang, level, spans}=f;
   const K=man.K, R=man.R, ctlen=man.ctlen, bnonce=man.bnonce, tot=K+R;
   const lv=GRAMMARS[lang][level];
-  const span=sentencesFor(lv, FRAME_BITS);
+  const nSent=sentencesFor(lv, FRAME_BITS), span=nSent*lv.tokens;
 
   const blocked=new Set();
   for(const [a,b] of spans) for(let x=a;x<b;x++) blocked.add(x);
 
-  const n=lines.length, found={};
+  const n=toks.length, found={};
   let i=0;
   while(i+span<=n){
-    if(blocked.has(i)){ i++; continue; }
-    let bits=[], ok=true;
-    for(let s=0;s<span;s++){
-      if(blocked.has(i+s)){ ok=false; break; }
-      const pb=parseSentence(lv, lines[i+s]);
-      if(pb===null){ ok=false; break; }
-      bits=bits.concat(pb);
-    }
-    if(ok){
+    let clash=false;
+    for(let x=i;x<i+span;x++) if(blocked.has(x)){ clash=true; break; }
+    if(clash){ i++; continue; }
+    const bits=readRun(lv, toks, i, nSent);
+    if(bits!==null){
       const fr=await parseFrame(raw, bitsToBytes(bits.slice(0,FRAME_BITS)), bnonce);
       if(fr && fr.idx<tot && !(fr.idx in found)){ found[fr.idx]=fr.payload; i+=span; continue; }
     }
@@ -739,7 +768,7 @@ async function decode(coverText, keyObj){
 }
 
 /* ==================================================================== UI */
-const state={secret:"", pass:"", lang:"de", profile:"js8call", parity:2, plaus:30};
+const state={secret:"", pass:"", lang:"en", profile:"plain", parity:2, plaus:30};
 let lastCover="";
 
 function levelFromPlaus(p){ return p<25?0 : p<50?1 : p<75?2 : 3; }
@@ -903,6 +932,21 @@ window.selftest=async function(){
   console.log("[mangled transport] ok:", r6.ok, "msg:", r6.message==="Meet at six"?"MATCH":"MISMATCH",
               "warned:", !!r6.warning);
   okAll&&=(r6.ok && r6.message==="Meet at six" && !!r6.warning);
+  // a transport that reflows, joins or wraps lines must not matter at all
+  const flat=coverToText(e6).split("\n").join(" ");
+  const rewrap=(s,w)=>{const o=[];let l="";for(const t of s.split(" ")){
+    if((l+" "+t).trim().length>w){o.push(l.trim());l=t;}else l+=" "+t;}
+    if(l.trim())o.push(l.trim());return o.join("\n");};
+  const reflow={"one line":flat,"wrapped at 40":rewrap(flat,40),
+                "wrapped at 200":rewrap(flat,200),
+                "blank lines":rewrap(flat,120).split("\n").join("\n\n")};
+  const bad=[];
+  for(const [n,txt] of Object.entries(reflow))
+    if((await decode(txt,key)).message!=="Meet at six") bad.push(n);
+  console.log(`[reflowed lines] ${Object.keys(reflow).length-bad.length}/${Object.keys(reflow).length} ok`,
+              bad.length?("-- FAILED: "+bad.join(", ")):"");
+  okAll&&=!bad.length;
+
   // a clean cover must NOT be flagged
   const r7=await decode(coverToText(e6),key);
   console.log("[clean cover] ok:", r7.ok, "warned:", !!r7.warning,

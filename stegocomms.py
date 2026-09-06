@@ -285,12 +285,14 @@ def _build(lang):
             pat += "(" + "|".join(re.escape(w) for w in alts) + ")"
             last = m.end()
         pat += re.escape(tpl[last:])
-        out.append({"tpl": tpl, "slots": slots, "bits": bits,
-                    "re": re.compile("^" + pat + "$")})
+        lv = {"tpl": tpl, "slots": slots, "bits": bits,
+              "re": re.compile("^" + pat + "$")}
+        # Every template has a fixed word count (all nouns are article+noun or
+        # bare, all other slots are single words).  That is what lets the
+        # decoder work on a stream of words instead of on lines.
+        lv["tokens"] = len(render_sentence(lv, [0] * bits).split())
+        out.append(lv)
     return out
-
-GRAMMARS = {"de": _build("de"), "en": _build("en")}
-LEVELS = range(len(TEMPLATES["de"]))
 
 def render_sentence(lv, bits):
     idx = 0
@@ -308,25 +310,39 @@ def render_sentence(lv, bits):
 # ("> ").  Cover sentences never contain ":" or ">", so stripping such a prefix
 # can never damage a genuine sentence.
 _PREFIX_RE = re.compile(r"^[>\s]*(?:[a-z0-9/\-]{1,12}\s*[:>]\s*)?")
-_TRAIL_RE = re.compile(r"[.!?,;:\s]+$")
+_PUNCT_RE = re.compile(r"[.!?,;:\"'()\[\]<>_*]+")
 
 def clean_line(line):
     """Fold away what a transport typically changes: casing, a leading callsign
-    or quote marker, trailing punctuation, and runs of whitespace.  Anything
-    beyond that is real damage and costs the block."""
+    or quote marker, punctuation of any kind, and runs of whitespace.  The
+    grammar emits none of that, so removing it can never destroy information."""
     s = _PREFIX_RE.sub("", line.strip().lower())
-    return re.sub(r"\s+", " ", _TRAIL_RE.sub("", s))
+    return re.sub(r"\s+", " ", _PUNCT_RE.sub(" ", s)).strip()
 
-def parse_sentence(lv, line):
-    m = lv["re"].match(clean_line(line))
-    if not m:
-        return None
+def _bits_from(lv, m):
     bits = []
     for i, sl in enumerate(lv["slots"]):
         v = sl["opts"].index(m.group(i + 1))
         for b in range(sl["width"] - 1, -1, -1):
             bits.append((v >> b) & 1)
     return bits
+
+def parse_sentence(lv, line):
+    m = lv["re"].match(clean_line(line))
+    return _bits_from(lv, m) if m else None
+
+def parse_at(lv, toks, pos):
+    """Try to read one sentence out of the word stream starting at pos."""
+    n = lv["tokens"]
+    if pos + n > len(toks):
+        return None
+    m = lv["re"].match(" ".join(toks[pos:pos + n]))
+    return _bits_from(lv, m) if m else None
+
+# _build needs render_sentence to measure each template's word count, so the
+# grammars are built here rather than next to _build.
+GRAMMARS = {"de": _build("de"), "en": _build("en")}
+LEVELS = range(len(TEMPLATES["de"]))
 
 # --------------------------------------------------------- crypto
 def derive_key(passphrase):
@@ -423,7 +439,7 @@ def apply_profile(txt, profile):
     case.  Casing carries no data; the decoder lower-cases everything anyway."""
     return txt.upper() if profile == "js8call" else txt.lower()
 
-def encode(secret, key, lang="de", profile="js8call", level=1, parity=2):
+def encode(secret, key, lang="de", profile="plain", level=1, parity=2):
     raw = key["raw"]
     lv = GRAMMARS[lang][level]
     ct = encrypt_msg(secret, key)
@@ -480,8 +496,18 @@ def cover_to_text(enc, sections=None):
         parts += [apply_profile(l, enc["profile"]) for l in s["lines"]]
     return "\n".join(parts)
 
-def _norm_lines(cover_text):
-    return [clean_line(l) for l in cover_text.splitlines() if l.strip()]
+def _tokens(cover_text):
+    """The whole cover as one stream of words.  Line breaks carry no
+    information, so a transport that reflows, wraps or joins lines cannot
+    hurt -- the sentences are recovered from the word sequence alone."""
+    toks = []
+    for l in cover_text.splitlines():
+        if not l.strip():
+            continue
+        s = clean_line(l)
+        if s:
+            toks.extend(s.split(" "))
+    return toks
 
 def _foreign_chars(cover_text):
     """Characters the grammar never produces.  Their presence means the text was
@@ -495,26 +521,33 @@ def _foreign_chars(cover_text):
         seen.update(c for c in s if not (c == " " or ("a" <= c <= "z")))
     return sorted(seen)
 
-def _find_manifest(raw, lines):
-    """Tries every (language, level) and slides a window over the text; the
-    manifest CRC16 decides.  Returns the manifest fields, the language, the
-    level and the line ranges it occupies."""
-    n = len(lines)
+def _read_run(lv, toks, pos, n_sent):
+    """Read n_sent consecutive sentences from the word stream at pos."""
+    bits = []
+    step = lv["tokens"]
+    for s in range(n_sent):
+        pb = parse_at(lv, toks, pos + s * step)
+        if pb is None:
+            return None
+        bits += pb
+    return bits
+
+def _find_manifest(raw, toks):
+    """Tries every (language, level) and slides a window over the word stream;
+    the manifest CRC16 decides.  Returns the manifest fields, the language, the
+    level and the word ranges it occupies.  Sliding by a single word is what
+    lets the decoder re-align after damage of any kind."""
+    n = len(toks)
     for lang in ("de", "en"):
         for level in LEVELS:
             lv = GRAMMARS[lang][level]
-            span = sentences_for(lv, MANIFEST_BITS)
+            n_sent = sentences_for(lv, MANIFEST_BITS)
+            span = n_sent * lv["tokens"]
             hit, spans = None, []
             i = 0
             while i + span <= n:
-                bits, ok = [], True
-                for s in range(span):
-                    pb = parse_sentence(lv, lines[i + s])
-                    if pb is None:
-                        ok = False
-                        break
-                    bits += pb
-                if ok:
+                bits = _read_run(lv, toks, i, n_sent)
+                if bits is not None:
                     man = parse_manifest(raw, bits_to_bytes(bits[:MANIFEST_BITS]))
                     if man is not None:
                         if hit is None:
@@ -529,7 +562,7 @@ def _find_manifest(raw, lines):
 
 def decode(cover_text, key):
     raw = key["raw"]
-    lines = _norm_lines(cover_text)
+    toks = _tokens(cover_text)
     foreign = _foreign_chars(cover_text)
     warning = None
     if foreign:
@@ -537,7 +570,7 @@ def decode(cover_text, key):
                    + " ".join(foreign) + ") -- something on the transport path "
                    "altered it. Trailing punctuation is tolerated; anything else "
                    "costs the affected block.")
-    man, lang, level, spans = _find_manifest(raw, lines)
+    man, lang, level, spans = _find_manifest(raw, toks)
     if man is None:
         if foreign:
             return {"ok": False, "warning": warning,
@@ -550,30 +583,22 @@ def decode(cover_text, key):
     K, R, ctlen, bnonce = man["K"], man["R"], man["ctlen"], man["bnonce"]
     tot = K + R
     lv = GRAMMARS[lang][level]
-    span = sentences_for(lv, FRAME_BITS)
+    n_sent = sentences_for(lv, FRAME_BITS)
+    span = n_sent * lv["tokens"]
 
     blocked = set()
     for a, b in spans:
         blocked.update(range(a, b))
 
-    n = len(lines)
+    n = len(toks)
     found = {}
     i = 0
     while i + span <= n:
-        if i in blocked:
+        if any(x in blocked for x in range(i, i + span)):
             i += 1
             continue
-        bits, ok = [], True
-        for s in range(span):
-            if (i + s) in blocked:
-                ok = False
-                break
-            pb = parse_sentence(lv, lines[i + s])
-            if pb is None:
-                ok = False
-                break
-            bits += pb
-        if ok:
+        bits = _read_run(lv, toks, i, n_sent)
+        if bits is not None:
             fr = parse_frame(raw, bits_to_bytes(bits[:FRAME_BITS]), bnonce)
             if fr is not None and fr[0] < tot and fr[0] not in found:
                 found[fr[0]] = fr[1]
@@ -683,6 +708,19 @@ def _selftest():
           f"warned: {bool(r6.get('warning'))}")
     ok_all &= bool(r6.get("ok") and r6.get("message") == "Meet at six" and r6.get("warning"))
 
+    # a transport that reflows, joins or wraps lines must not matter at all
+    import textwrap
+    flat = " ".join(cover_to_text(enc).split("\n"))
+    reflow = {"one line": flat,
+              "wrapped at 40": textwrap.fill(flat, 40),
+              "wrapped at 200": textwrap.fill(flat, 200),
+              "blank lines": "\n\n".join(textwrap.wrap(flat, 120))}
+    bad = [n for n, txt in reflow.items()
+           if decode(txt, key).get("message") != "Meet at six"]
+    print(f"[reflowed lines] {len(reflow) - len(bad)}/{len(reflow)} ok"
+          + (f" -- FAILED: {bad}" if bad else ""))
+    ok_all &= not bad
+
     # a clean cover must NOT be flagged
     r7 = decode(cover_to_text(enc), key)
     print(f"[clean cover] ok: {r7.get('ok')} warned: {bool(r7.get('warning'))} "
@@ -710,7 +748,8 @@ def _main():
     pe.add_argument("--level", type=int, default=1, choices=[0, 1, 2, 3],
                     help="0=very believable ... 3=very terse")
     pe.add_argument("--parity", type=int, default=2)
-    pe.add_argument("--profile", choices=["js8call", "plain"], default="js8call")
+    pe.add_argument("--profile", choices=["js8call", "plain"], default="plain",
+                    help="plain=lower case (default), js8call=upper case")
 
     pd = sub.add_parser("decode", help="cover (stdin) -> plaintext")
     pd.add_argument("--pass", dest="passphrase", required=True)
