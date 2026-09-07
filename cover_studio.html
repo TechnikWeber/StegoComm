@@ -139,6 +139,17 @@
     border-radius:8px;padding:7px 12px;font-family:var(--sans);font-size:12px;cursor:pointer}
   .toggle:hover{border-color:var(--blue)}
   .toggle[aria-pressed="true"]{background:#16324a;border-color:#2c567c;color:var(--amber)}
+  .keyhead{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;flex-wrap:wrap;margin-bottom:7px}
+  .keyhead label.field{margin:0}
+  .keytools{display:flex;gap:6px;flex:0 0 auto}
+  .btn.tiny,.toggle.tiny{padding:4px 9px;font-size:11.5px;border-radius:7px}
+  .btn[disabled]{opacity:.4;cursor:default}
+  .btn[disabled]:hover{border-color:var(--line)}
+  .toggle.tiny[aria-pressed="true"]{background:#0e2118;border-color:#2f6b48;color:var(--green)}
+  input.txt.locked{background:#0B1710;border-color:#2f6b48}
+  #showKey[aria-pressed="true"]{background:#2a2413;border-color:#6b5a2f;color:var(--amber)}
+  #copyKey{min-width:88px}
   .passnote{font-size:12px;margin-top:7px;line-height:1.5}
   .passnote.reject{color:var(--danger)} .passnote.weak{color:var(--amber)}
   .passnote.ok{color:var(--blue)} .passnote.good{color:var(--green)}
@@ -168,8 +179,21 @@
         <label class="field" for="secret">Secret message</label>
         <textarea id="secret" placeholder="Type your plaintext here …">Meet Sunday 6pm at the old harbour.</textarea>
 
-        <label class="field" for="pass" style="margin-top:14px">Key / passphrase (identical on both sides)</label>
-        <input class="txt" id="pass" type="text" spellcheck="false" maxlength="256"
+        <div class="keyhead" style="margin-top:14px">
+          <label class="field" for="pass">Key / passphrase (identical on both sides)</label>
+          <div class="keytools">
+            <button class="btn tiny" id="genKey" type="button"
+                    title="Replace the key with 125 fresh random bits">🎲 Random</button>
+            <button class="toggle tiny" id="showKey" type="button" aria-pressed="false"
+                    title="Show the key on screen">👁 Show</button>
+            <button class="btn tiny" id="copyKey" type="button"
+                    title="Copy the key to the clipboard — works while it is hidden">⧉ Copy</button>
+            <button class="toggle tiny" id="lockKey" type="button" aria-pressed="false"
+                    title="Lock the field so the key cannot be changed by accident">🔓 Unlocked</button>
+          </div>
+        </div>
+        <input class="txt" id="pass" type="password" spellcheck="false" maxlength="256"
+               autocomplete="off" autocorrect="off" autocapitalize="off"
                value="correct-horse-battery-staple">
         <div class="passnote" id="passnote"></div>
 
@@ -1568,6 +1592,70 @@ $("afuBtn").addEventListener("click", ()=>{
 });
 $("secret").addEventListener("input",e=>{ state.secret=e.target.value; recompute(); });
 $("pass").addEventListener("input",e=>{ state.pass=e.target.value; recompute(); });
+
+/* ---- random key, and a lock against overwriting it ---- */
+/* 32 unambiguous characters — no l/1, no o/0, so a key survives being read out
+   loud or copied off a screen. Five bits each, and 256/32 divides evenly, so
+   masking a random byte stays uniform: five groups of five are 125 bits. */
+const KEY_ALPHABET="abcdefghijkmnpqrstuvwxyz23456789";
+function randomKey(groups=5, size=5){
+  const bytes=crypto.getRandomValues(new Uint8Array(groups*size));
+  const out=[];
+  for(let g=0; g<groups; g++){
+    let s=""; for(let i=0;i<size;i++) s+=KEY_ALPHABET[bytes[g*size+i]&31];
+    out.push(s);
+  }
+  return out.join("-");
+}
+let passLocked=false;
+function setPassLocked(on){
+  passLocked=on;
+  const inp=$("pass"), lock=$("lockKey");
+  inp.readOnly=on;                       /* readOnly, not disabled: still readable and copyable */
+  inp.classList.toggle("locked", on);
+  lock.setAttribute("aria-pressed", String(on));
+  lock.textContent = on ? "🔒 Locked" : "🔓 Unlocked";
+  lock.title = on ? "Unlock the field to change the key"
+                  : "Lock the field so the key cannot be changed by accident";
+  $("genKey").disabled = on;
+}
+$("genKey").addEventListener("click",()=>{
+  if(passLocked) return;
+  const k=randomKey();
+  $("pass").value=k; state.pass=k; recompute();
+});
+$("lockKey").addEventListener("click",()=>setPassLocked(!passLocked));
+setPassLocked(false);
+
+/* The key is masked by default, so a screenshot of the window does not hand it
+   over. Copying reads the value, not the pixels, so it works either way. */
+let passHidden=true;
+function setPassHidden(on){
+  passHidden=on;
+  const inp=$("pass"), btn=$("showKey");
+  inp.type = on ? "password" : "text";
+  btn.setAttribute("aria-pressed", String(!on));
+  btn.textContent = on ? "👁 Show" : "👁 Hide";
+  btn.title = on ? "Show the key on screen" : "Hide the key again";
+}
+$("showKey").addEventListener("click",()=>setPassHidden(!passHidden));
+setPassHidden(true);
+async function copyKey(){
+  const b=$("copyKey"), inp=$("pass");
+  let ok=false;
+  try{ if(navigator.clipboard){ await navigator.clipboard.writeText(inp.value); ok=true; } }catch(e){}
+  if(!ok){
+    /* No clipboard API: an old browser, or a page not served over https. Unmask
+       and unlock just long enough to copy the selection, then put both back. */
+    const wasHidden=passHidden, wasLocked=inp.readOnly;
+    inp.type="text"; inp.readOnly=false; inp.select();
+    try{ ok=document.execCommand("copy"); }catch(e){}
+    inp.readOnly=wasLocked; inp.type=wasHidden?"password":"text"; inp.blur();
+  }
+  b.textContent = ok ? "Copied ✓" : "Copy failed";
+  setTimeout(()=>b.textContent="⧉ Copy", 1400);
+}
+$("copyKey").addEventListener("click",copyKey);
 const plaus=$("plaus");
 plaus.addEventListener("input",e=>{ state.plaus=+e.target.value;
   plaus.style.setProperty("--track",`linear-gradient(90deg, var(--amber) ${100-e.target.value}%, var(--danger))`);

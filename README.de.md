@@ -17,13 +17,12 @@ Eine im Browser kodierte Nachricht lässt sich mit der Python-CLI dekodieren und
 
 ![Das Browser-Tool: links die Nachricht, rechts der erzeugte Cover](docs/cover-studio.jpg)
 
-*Das Browser-Tool. Links, was du eintippst und woraus der Cover gebaut wird.
-Rechts der Text zum Senden, mit laufender Anzeige, wie stark er die Nachricht
-aufbläht.*
+*Links, was du eintippst und woraus der Cover gebaut wird. Rechts der Text zum
+Senden, mit laufender Anzeige, wie stark er die Nachricht aufbläht.*
 
 ![Dieselbe Nachricht im kompakten Ziffernformat](docs/cover-studio-compact.jpg)
 
-*Dieselbe Nachricht mit abgeschalteter Tarnung — 354 statt 1741 Zeichen, und ein
+*Dieselbe Nachricht mit abgeschalteter Tarnung — 354 statt 1753 Zeichen, und ein
 deutlicher Hinweis, dass hier nichts mehr versteckt wird.*
 
 > ⚠️ **Das ist ein Proof of Concept, keine auditierte Sicherheitssoftware.** Es zeigt die Architektur (echte AEAD-Verschlüsselung in einem steganographischen Text-Cover mit Vorwärtsfehlerkorrektur). Verlass dich damit nicht auf den Schutz gefährdeter Menschen ohne unabhängiges Sicherheitsreview.
@@ -81,8 +80,6 @@ es 5 Bit wert, *welches* Nomen dasteht. Nomen, Adjektiv und Endung zusammen — 
 ein kurzer Satz hat 10 bis 28 Bit transportiert. Der Empfänger schlägt jedes Wort
 in denselben Listen nach und hat die Bits zurück.
 
-**Wofür jede Schicht da ist**
-
 | Schicht | Löst |
 |---|---|
 | deflate (wenn es hilft) | weniger Bytes zu verstecken |
@@ -100,33 +97,18 @@ dort Schluss. Die Tarnung sorgt dafür, dass überhaupt niemand hinsieht.
 
 ## Was es im Detail macht
 
-Du hast eine geheime Nachricht. StegoComm:
-
-1. **komprimiert** sie (deflate) — aber nur, wenn sie dadurch wirklich kleiner wird; deflate kostet sechs Byte Rahmen, die eine kurze Nachricht nie wieder einspielt,
-2. **verschlüsselt** sie mit AES-256-GCM (Schlüssel aus einer gemeinsamen Passphrase via PBKDF2-HMAC-SHA256, 200 000 Iterationen),
-3. zerlegt den Chiffretext in 8-Byte-**Blöcke** und ergänzt **Reed-Solomon-Parity-Blöcke** (GF(256), Cauchy-Matrix), damit verlorene oder beschädigte Blöcke ohne Nachforderung rekonstruiert werden,
-4. **kodiert jeden Block als unauffällige Sätze** — Wetter und Smalltalk auf Deutsch oder Englisch — wobei die *Wortwahl* die Bits trägt,
-5. füllt Restbits mit schlüsselabgeleitetem **Zufalls-Padding**, damit Füllsätze keine verräterischen Muster wiederholen.
-
 Im Cover steht **nirgends ein Klartext-Header**. Blockindex und Block-CRC stecken
-in den Satz-Bits; die pro Nachricht konstanten Felder (Blockzahl, Parity-Zahl,
-Padlänge, Block-Nonce) liegen in einem **Manifest**, das selbst aus ganz normalen
-Cover-Sätzen besteht und mit einem schlüsselabgeleiteten Keystream verschleiert
-ist. Ohne Passphrase ist es von einem Nutzblock nicht zu unterscheiden. Das
-Manifest wird zweimal gesendet — am Anfang und am Ende, mit verschiedenen Nonces
-und daher völlig verschiedenem Wortlaut — damit der Verlust einer Stelle nicht
-die ganze Nachricht kostet.
+in den Satz-Bits; die pro Nachricht konstanten Felder liegen in einem
+**Manifest**, das selbst aus normalen Cover-Sätzen besteht, mit einem
+schlüsselabgeleiteten Keystream verschleiert und damit von einem Nutzblock nicht
+zu unterscheiden ist. Es wird zweimal gesendet, am Anfang und am Ende, damit der
+Verlust einer Stelle nicht die ganze Nachricht kostet.
 
-Das Cover besteht deshalb **ausschließlich aus Trägersätzen** — keinerlei
-Rahmenzeile, und **nur Buchstaben und einfache Leerzeichen**: keine Satzzeichen,
-keine Ziffern, auf keiner Stufe. Das ist Absicht, denn Satzzeichen sind genau
-das, was eine Funk- oder Chat-Strecke stillschweigend verschluckt oder ersetzt.
-
-Die beiden Profile unterscheiden sich nur in der Schreibweise: `plain` (Standard)
-liefert Kleinbuchstaben, damit es wie eine normale Chat-Nachricht aussieht,
-`js8call` liefert Großbuchstaben — den Zeichensatz, den JS8Call am effizientesten
-überträgt. Die Schreibweise trägt keine Daten; der Decoder wandelt vor dem Parsen
-ohnehin alles in Kleinbuchstaben.
+Das Cover besteht **ausschließlich aus Trägersätzen**, aus **nur Buchstaben und
+einfachen Leerzeichen** — keine Satzzeichen, keine Ziffern, auf keiner Stufe,
+denn Satzzeichen sind genau das, was eine Funk- oder Chat-Strecke stillschweigend
+verschluckt. `plain` (Standard) liefert Kleinbuchstaben, `js8call` Großbuchstaben
+für JS8Calls effizientesten Zeichensatz; die Schreibweise trägt keine Daten.
 
 Der Empfänger dreht alles zurück; eine Block-CRC erkennt beschädigte Blöcke und
 behandelt sie als Erasure, was die Parity bis zu ihrer Grenze repariert — darüber
@@ -135,10 +117,9 @@ kommt ein **NACK**, der genau angibt, welche Blöcke nachzusenden sind
 
 ### Kompaktformate — wenn du keine Tarnung brauchst
 
-Die Sätze sind dazu da, den Cover unauffällig zu machen. Ist der Kanal ohnehin
-privat und zählt nur die Größe, ist dieser Aufwand reine Verschwendung:
-**`--format digits` und `--format base32` geben dasselbe Wire-Format in einem
-kürzeren Alphabet aus.**
+Ist der Kanal ohnehin privat und zählt nur die Größe, sind die Sätze reine
+Verschwendung: **`--format digits` und `--format base32` geben dasselbe
+Wire-Format in einem kürzeren Alphabet aus.**
 
 | Format | Gleiche Nachricht | Alphabet | Bit pro Zeichen |
 |---|---|---|---|
@@ -146,24 +127,13 @@ kürzeren Alphabet aus.**
 | `digits` | 263 Zeichen | `0`–`9` | 3,3 |
 | `base32` | 175 Zeichen | Crockford, Großbuchstaben | 5 |
 
-Vier- bis sechsmal kürzer. Verloren geht genau eine Sache: **die Tarnung.** Das
-sind sichtbar verschlüsselte Daten, und sie sehen auch so aus. Alles andere
-bleibt unangetastet — dieselbe Verschlüsselung, dieselbe Reed-Solomon-Parity,
-dieselbe Block-CRC, dasselbe Manifest, derselbe NACK. Ein unterwegs verlorener
-Block wird weiterhin aus der Parity rekonstruiert, und Leerzeichen wie
-Zeilenumbrüche werden weiterhin ignoriert — du kannst also als eine lange Kette
-oder in Gruppen einfügen.
-
-Dem Empfänger wird nichts mitgeteilt: der Decoder erkennt alle drei Formate
-selbst. Eine Seite kann Sätze senden und die andere Ziffern, ohne dass mehr
-abgesprochen wäre als die Passphrase.
-
-- **`digits`** ist das robusteste hier: nur `0`–`9`, übersteht also jeden
-  Transportweg und jede Groß-/Kleinschreibung und lässt sich über Funk oder
-  Telefon vorlesen.
-- **`base32`** nutzt Crockfords Alphabet, das I, L, O und U weglässt, damit
-  nichts als Ziffer missgelesen werden kann, und übersteht das Großschreiben für
-  JS8Call. Kürzestes der drei.
+Vier- bis sechsmal kürzer, und verloren geht genau eine Sache: **die Tarnung.**
+Alles andere bleibt unangetastet — dieselbe Verschlüsselung, dieselbe Parity,
+dieselbe CRC, dasselbe Manifest, derselbe NACK. `digits` übersteht jeden
+Transportweg und lässt sich über Funk vorlesen; `base32` nutzt Crockfords
+Alphabet (ohne I, L, O, U) und ist das kürzeste. Der Decoder erkennt alle drei
+Formate selbst — eine Seite kann Sätze senden und die andere Ziffern, ohne dass
+mehr abgesprochen wäre als die Passphrase.
 
 ```
 04037 82089 24965 64789 15437     ← digits
@@ -172,59 +142,38 @@ abgesprochen wäre als die Passphrase.
 
 ### Themen-Vokabulare
 
-Die Sätze werden aus einem von sechs Alltagsvokabularen gebaut — **Wetter &
-Himmel, Haushalt & Küche, Garten & draußen, Arbeit & Erledigungen, Unterwegs &
-Straße, Funk & Technik**, je 64 Nomen — und pro Satz wird ein Thema gezogen,
-damit ein Cover zwischen Themen wandert wie echtes Geplauder. Alles außer *Funk & Technik* ist
-standardmäßig an; der Knopf **AFU mode** schaltet auf *Funk & Technik* allein um,
-und einzeln anhakbar bleibt weiterhin alles.
+Die Sätze werden aus sechs Alltagsvokabularen gebaut — **Wetter & Himmel,
+Haushalt & Küche, Garten & draußen, Arbeit & Erledigungen, Unterwegs & Straße,
+Funk & Technik**, je 64 Nomen — und pro Satz wird ein Thema gezogen, damit ein
+Cover zwischen Themen wandert wie echtes Geplauder. Alles außer *Funk & Technik*
+ist standardmäßig an; **AFU mode** schaltet auf *Funk & Technik* allein um.
 
 **Die Auswahl betrifft nur das Senden, beide Seiten müssen sie nicht abgleichen.**
-Das Thema trägt keine Daten: zwischen den Themen unterscheiden sich nur die
-Nomen, jedes Nomen kommt in genau einem Thema vor, und die Indizes hinter den
-Wörtern bedeuten überall dasselbe. Das Nomen sagt dem Decoder also, aus welchem
-Thema ein Satz stammt, und er kennt immer alle sechs — unabhängig davon, was du
-angehakt hast. Teilnehmer 1 kann mit Wetter und Küche senden, während Teilnehmer
-2 nur Funk & Technik angehakt hat, und beide lesen einander trotzdem; geteilt
-wird allein die Passphrase. Genau das prüft die Testsuite, indem jede
-Implementierung mit einer anderen Themenwahl kodiert und die andere dekodiert.
-
-Auf der Kommandozeile: `--topics weather,garden` oder `--afu`.
+Jedes Nomen kommt in genau einem Thema vor, das Nomen sagt dem Decoder also, aus
+welchem Thema ein Satz stammt — die Testsuite beweist es, indem jede
+Implementierung mit einer anderen Themenwahl kodiert. Auf der Kommandozeile:
+`--topics weather,garden` oder `--afu`.
 
 ### Den Transportweg überleben
 
-Das Cover muss unbeschadet ankommen, und echte Transportwege sind nicht
-sorgfältig. Der Decoder liest deshalb gar keine Zeilen mehr — er liest **einen
-durchgehenden Wortstrom**. Jede Satz-Schablone hat eine feste Wortzahl, die Sätze
-lassen sich also allein aus der Wortfolge zurückgewinnen, und **Zeilenumbrüche
-tragen keine Information**. Ein Weg, der den Text umbricht, zusammenzieht, neu
-umbricht oder mit Leerzeilen durchsetzt, ändert nichts.
-
-Davor bügelt er den Rest der üblichen Schäden aus: Groß-/Kleinschreibung, ein
-vorangestelltes Rufzeichen oder Zitatzeichen (`KN4CRD: `, `> `), Satzzeichen an
-beliebiger Stelle und Folgen von Leerzeichen. Cover-Sätze enthalten nie `:` oder
-`>`, das Abschneiden eines solchen Präfixes kann also nie einen echten Satz
-beschädigen.
-
-Findet er trotzdem Zeichen, die die Grammatik nie erzeugt, sagt er das — statt
-deiner Passphrase die Schuld zu geben. Diese Meldung ist das Nützlichste, was er
-dir sagen kann, wenn ein Transportweg deinen Text verändert.
-
-Tödlich bleibt ein Weg, der **Wörter verändert oder verschluckt**. Jeder
-beschädigte Satz kostet einen Block; die Parity fängt ein paar davon ab, darüber
-kommt ein NACK.
+Der Decoder liest gar keine Zeilen — er liest **einen durchgehenden Wortstrom**.
+Jede Satz-Schablone hat eine feste Wortzahl, **Zeilenumbrüche tragen also keine
+Information**: ein Weg, der den Text umbricht, zusammenzieht oder neu umbricht,
+ändert nichts. Davor bügelt er Groß-/Kleinschreibung, ein vorangestelltes
+Rufzeichen oder Zitatzeichen (`KN4CRD: `, `> `), Satzzeichen und Folgen von
+Leerzeichen weg — und findet er trotzdem Zeichen, die die Grammatik nie erzeugt,
+sagt er das, statt deiner Passphrase die Schuld zu geben. Tödlich bleibt ein Weg,
+der **Wörter verändert oder verschluckt**: jeder beschädigte Satz kostet einen
+Block, die Parity fängt ein paar davon ab, darüber kommt ein NACK.
 
 ### Der Glaubhaftigkeits-Regler
 
-**„Stufe" ist einfach die Stellung des Glaubhaftigkeits-Reglers** — eine von
-vier, auf der Kommandozeile `--level 0` bis `--level 3`. Sie entscheidet, wie
-viel jeder Satz zu tragen hat: eine niedrige Stufe nutzt nur die alltäglichsten
-Wörter und braucht dafür viele Sätze; eine hohe Stufe greift auf viel breitere
-Wortlisten zu, ein Satz trägt also mehr, und es werden weniger Sätze gebraucht.
-Sonst ändert sich nichts — dieselbe Verschlüsselung, dieselbe Nachricht. Du
-tauschst nur, wie natürlich der Text klingt, gegen seine Länge.
-
-Der Empfänger muss nicht wissen, welche Stufe du benutzt hast.
+**„Stufe" ist die Stellung des Glaubhaftigkeits-Reglers** — eine von vier, auf
+der Kommandozeile `--level 0` bis `--level 3`. Eine niedrige Stufe nutzt nur die
+alltäglichsten Wörter und braucht dafür viele Sätze; eine hohe greift auf viel
+breitere Listen zu, ein Satz trägt also mehr. Sonst ändert sich nichts: du
+tauschst nur, wie natürlich der Text klingt, gegen seine Länge. Der Empfänger
+muss nicht wissen, welche Stufe du benutzt hast.
 
 Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 
@@ -238,40 +187,16 @@ Gemessen an `Treffen Sonntag 18 Uhr am alten Hafen` (deutsch, 2 Parity-Blöcke):
 Die Natürlichkeit fällt hörbar Stufe für Stufe: 0 und 1 sind vollständige Sätze
 mit Artikel und Verb, Stufe 2 lässt den Artikel weg, Stufe 3 zusätzlich das Verb.
 Diese Leiter ist **gemessen, nicht geraten** — über die Cover-Länge entscheidet
-`ceil(80 / Bits) × mittlere Satzlänge`, und vier kurze Sätze schlagen drei lange.
-Deshalb werfen die knappen Stufen Funktionswörter raus, statt Nebensätze
-anzuhängen.
+`ceil(80 / Bits) × mittlere Satzlänge`, deshalb werfen die knappen Stufen
+Funktionswörter raus und machen die **Wortlisten breiter** (8/16/32 Optionen je
+Slot), statt Nebensätze anzuhängen. Die Glaubhaftigkeit sinkt also durch
+ungewöhnliche Wortwahl, und die Zeichenzahl fällt mit — auf JS8Call, wo die
+Sendezeit an Zeichen hängt, halbiert die Stufe sie tatsächlich.
 
-Höhere Stufen hängen **keine** Nebensätze mehr an — das war der v3-Entwurf, und
-er ging nach hinten los: ein angehängter Nebensatz brachte ~5 Bit, kostete aber
-~20 Zeichen. Dadurch *sank* die Dichte pro Zeichen mit steigender Stufe, und
-„sehr knapp" erzeugte einen **längeren** Cover als „sehr glaubhaft". In v4 bleibt
-der Satz kurz und die **Wortlisten werden breiter** (8/16/32 Optionen je Slot =
-3/4/5 Bit); Stufe 3 fällt zusätzlich in den Telegrammstil ohne Artikel und Verb.
-Die Glaubhaftigkeit sinkt jetzt durch ungewöhnliche Wortwahl, nicht durch Länge
-— und die Zeichenzahl fällt endlich mit der Stufe.
-
-Wichtig zur Einordnung: Auf JS8Call hängt die Sendezeit an **Zeichen**, die Stufe
-halbiert sie also tatsächlich. In einem Chat-Transport spart sie vor allem
-Nachrichten zum Einfügen.
-
-Jede Stufe bietet **sechzehn Satzformen** mit identischer Wortzahl und Bitbreite
-— acht Kopulaverben (`ist/war/bleibt/blieb/wirkt/wirkte/scheint/schien`, die
-Zeitform wechselt wie in echtem Geplauder) mal zwei Wortstellungen für die Stufen
-0 bis 2, und sechzehn der 24 Anordnungen der vier Wörter für Stufe 3. Welche
-benutzt wird, ist selbst Teil der Nutzlast, die Vielfalt ist also gratis: sie
-bringt vier Bit pro Satz zusätzlich, statt etwas zu kosten — deshalb braucht
-Stufe 0 jetzt sechs statt sieben Sätze pro Block.
-
-Die höheren Stufen greifen zusätzlich tiefer in die Wortlisten. Jedes Thema hat
-**64 Nomen**, sortiert danach, wie alltäglich das Wort ist, dazu kommen 64
-Adjektive und je 32 Wetterwörter, Endungen und Zeitadverbien. Stufe 0 sieht nur
-die ersten 16 Nomen und die 8 gebräuchlichsten Adjektive, Stufe 3 alles — auch
-deshalb klingt sie schräg, und deshalb trägt sie fast doppelt so viele Bit pro
-Zeichen.
-
-Weder Sprache noch Stufe stehen irgendwo im Cover — der Decoder probiert schlicht
-alle 8 Kombinationen durch, die CRC16 des Manifests entscheidet.
+Jede Stufe bietet **sechzehn Satzformen** mit identischer Wortzahl und Bitbreite;
+welche benutzt wird, ist selbst Teil der Nutzlast, die Vielfalt ist also gratis.
+Weder Sprache noch Stufe stehen irgendwo im Cover — der Decoder probiert alle 8
+Kombinationen durch, die CRC16 des Manifests entscheidet.
 
 ---
 
@@ -298,12 +223,27 @@ Auf Fedora alternativ das Systempaket: `sudo dnf install python3-cryptography`.
 
 ## Benutzung
 
-**Browser:** Nachricht eintippen, Passphrase eingeben (beide Seiten dieselbe),
+**Browser:** Nachricht eintippen, Schlüssel eingeben (beide Seiten denselben),
 Sprache / Kanal / Glaubhaftigkeit wählen, dann **Copy all**. Die Gegenseite fügt
-den Text im Panel *Receive & decrypt* ein und klickt **Decrypt**.
-**Test with my own cover** ist ein Loopback-Test: der Knopf fügt den gerade
-erzeugten Cover ins Empfangsfeld ein und entschlüsselt ihn, damit du ohne zweiten
-Rechner prüfen kannst, dass Kodieren und Dekodieren zusammenpassen.
+den Text im Panel *Receive & decrypt* ein und klickt **Decrypt**. **Test with my
+own cover** ist ein Loopback-Test: der Knopf dekodiert den gerade erzeugten
+Cover, damit du ohne zweiten Rechner prüfen kannst, dass beide Richtungen
+zusammenpassen.
+
+Über dem Schlüsselfeld sitzen vier Knöpfe:
+
+- **🎲 Random** ersetzt den Schlüssel durch 25 Zeichen aus
+  `crypto.getRandomValues` — 125 Bit, aus einem Alphabet ohne die Verwechsler
+  `l/1` und `o/0`, damit er es übersteht, über Funk durchgegeben zu werden.
+- **👁 Show** zeigt den Schlüssel an; **standardmäßig ist er maskiert**, damit ihn
+  ein Screenshot oder ein Blick über die Schulter nicht mitnimmt.
+- **⧉ Copy** legt ihn in die Zwischenablage, maskiert oder nicht.
+- **🔒 Das Schloss** schaltet das Feld auf schreibgeschützt und graut den Würfel
+  aus, damit ein versehentlicher Tastendruck nicht unbemerkt den Schlüssel
+  ändert, auf den sich beide Seiten geeinigt haben.
+
+Gespeichert wird nichts — Tab zu, Schlüssel weg. Also aufschreiben, bevor du
+etwas sendest.
 
 **CLI:**
 
@@ -337,27 +277,23 @@ unabhängigen Implementierungen überein.
 
 ### Zur Passphrase
 
-Jeder UTF-8-Text funktioniert — Umlaute, Emoji, Anführungszeichen, Backslashes,
-Tabs — denn PBKDF2 macht aus allem einen 32-Byte-Schlüssel. Weil aber die gesamte
-Sicherheit an dieser einen Zeichenkette hängt, **verweigern CLI und Browser-Tool
-das Kodieren unter 12 Zeichen** und sagen dir, wenn das Eingegebene schwächer ist
-als es aussieht. (`--allow-weak-pass` hebelt die CLI-Prüfung aus; Dekodieren ist
-nie eingeschränkt, sonst kämst du an deine alten Nachrichten nicht mehr heran.)
+Jeder UTF-8-Text funktioniert — PBKDF2 macht aus allem einen 32-Byte-Schlüssel.
+Weil aber die gesamte Sicherheit an dieser einen Zeichenkette hängt, **verweigern
+beide Seiten das Kodieren unter 12 Zeichen** und sagen dir, wenn das Eingegebene
+schwächer ist als es aussieht. (`--allow-weak-pass` hebelt die CLI-Prüfung aus;
+Dekodieren ist nie eingeschränkt, sonst kämst du an deine alten Nachrichten nicht
+mehr heran.)
 
 **Wie eine gute Passphrase aussieht:** vier oder fünf zusammenhanglose Wörter,
-z. B. `hafen-laterne-still-sieben`. Länge darüber hinaus zählt weniger als
-Unvorhersagbarkeit — `aaaaaaaaaaaaaaaaaaaa` hat zwanzig Zeichen und ist wertlos.
-Die Prüfung meldet nur, was tatsächlich prüfbar ist (Länge, Vielfalt, ob es ein
-einzelnes Wort ist); kein Messwerkzeug kann wissen, ob *du* zufällig gewählt
-hast, und sie sagt das auch.
+z. B. `hafen-laterne-still-sieben`, oder der 🎲-Zufallsschlüssel aus dem
+Browser-Tool. Länge darüber hinaus zählt weniger als Unvorhersagbarkeit —
+`aaaaaaaaaaaaaaaaaaaa` hat zwanzig Zeichen und ist wertlos. Die Prüfung meldet
+nur, was tatsächlich prüfbar ist (Länge, Vielfalt, ob es ein einzelnes Wort ist);
+kein Messwerkzeug kann wissen, ob *du* zufällig gewählt hast, und sie sagt das
+auch.
 
-Zwei weitere Dinge:
-
-- **Nichts wird getrimmt.** `"geheim"` und `"geheim "` sind verschiedene
-  Schlüssel. Ein beim Kopieren aufgeschnapptes Leerzeichen bricht die
-  Entschlüsselung.
-- **Das Feld ist nicht maskiert** (`type="text"`), die Passphrase steht sichtbar
-  auf dem Schirm.
+**Nichts wird getrimmt:** `"geheim"` und `"geheim "` sind verschiedene Schlüssel,
+ein beim Kopieren aufgeschnapptes Leerzeichen bricht also die Entschlüsselung.
 
 ---
 
@@ -366,10 +302,7 @@ Zwei weitere Dinge:
 **Nur die Cover-Sätze einfügen, sonst nichts.** JS8Call sendet dein Rufzeichen
 selbst — du tippst dort Nachrichtentext, keinen Header. Also kein `DE <call>`
 davorsetzen, und niemals ein fremdes Rufzeichen senden: das ist überall dort
-illegal, wo Amateurfunk lizenziert ist. Frühere Fassungen dieses Werkzeugs haben
-dekorative Rufzeichen-Zeilen ausgegeben (`DE W1ABC MSG 3/14`); genau deswegen
-sind sie entfernt worden. Ein altes Cover mit solchen Zeilen lässt sich weiterhin
-dekodieren — der Decoder überspringt, was er nicht parsen kann.
+illegal, wo Amateurfunk lizenziert ist.
 
 1. Mit `--profile js8call` kodieren (Großschreibung) oder im Browser-Tool den
    Kanal **JS8Call** wählen.
@@ -384,20 +317,12 @@ dekodieren — der Decoder überspringt, was er nicht parsen kann.
 
 ## Wire-Format v5
 
-Das aktuelle Wire-Format ist **v5**. Seine Grammatik enthält überhaupt keine
-Satzzeichen, und der Decoder liest einen Wortstrom statt Zeilen und normalisiert
-vor dem Parsen Groß-/Kleinschreibung, Rufzeichen-/Zitat-Präfixe, Satzzeichen und
-Leerraum weg. Jede Stufe hat acht Satzformen, die Sätze stammen aus sechs
-Themen-Vokabularen (beides muss der Empfänger nicht wissen), und deflate wird nur
-angewandt, wenn es die Nachricht tatsächlich verkleinert — es kostet sechs Byte Rahmen, die
-eine kurze Nachricht nie wieder einspielt, also hält das Manifest fest, was
-benutzt wurde. Das Salt heißt `stegocomm/v5/pbkdf2`; **Cover früherer Versionen
-lassen sich nicht mehr entschlüsseln**, das Format ist ohnehin inkompatibel.
-
-Beide Implementierungen werden im Gleichschritt geändert und bei jedem Push in
-beide Richtungen gegeneinander geprüft — siehe `tests/`.
-
-### Schichtenaufbau
+Die Grammatik enthält überhaupt keine Satzzeichen, und der Decoder liest einen
+Wortstrom statt Zeilen. Jede Stufe hat sechzehn Satzformen, die Sätze stammen aus
+sechs Themen-Vokabularen — beides muss der Empfänger nicht wissen. Deflate wird
+nur angewandt, wenn es die Nachricht tatsächlich verkleinert, also hält das
+Manifest fest, was benutzt wurde. Das Salt heißt `stegocomm/v5/pbkdf2`; **Cover
+früherer Versionen lassen sich nicht mehr entschlüsseln.**
 
 ```
 Klartext → deflate → AES-256-GCM(iv‖Chiffretext‖Tag)
@@ -407,7 +332,7 @@ Klartext → deflate → AES-256-GCM(iv‖Chiffretext‖Tag)
          → Restbits mit schlüsselabgeleitetem Zufalls-Padding gefüllt
 ```
 
-Weil es keine Header-Zeilen mehr gibt, an denen man sich neu ausrichten könnte,
+Weil es keine Header-Zeilen gibt, an denen man sich neu ausrichten könnte,
 schiebt der Decoder ein Fenster über den Wortstrom: er liest *n* Sätze, prüft die
 Block-CRC und rückt bei Misserfolg nur um **ein Wort** weiter. Ein verlorener
 oder verstümmelter Satz kostet damit einen Block, nicht den Rest der Nachricht.
@@ -416,18 +341,14 @@ oder verstümmelter Satz kostet damit einen Block, nicht den Rest der Nachricht.
 
 - Nachrichten sind auf 254 Blöcke begrenzt, also rund 2 kB Chiffretext.
 - Ein Cover ist 40- bis 70-mal so lang wie die Nachricht. Das meiste davon ist
-  systembedingt — die Grammatik trägt 0,4 bis 0,8 Bit pro Zeichen — und das
-  Browser-Tool schlüsselt den Rest jetzt Posten für Posten auf. Größere Blöcke
-  würden den Rahmen pro Block drücken, wurden aber gemessen und verworfen: die
-  Parity-Blöcke wachsen mit der Blockgröße mit, 8 Byte ergaben bei jeder
-  getesteten Nachrichtenlänge den kürzesten Cover.
-- Mit sechzehn Satzformen und sechs Vokabularen wiederholt ein langer Cover kein
-  einzelnes Muster mehr, aber die Sätze sind weiterhin schablonenerzeugt und
-  paaren Wörter zufällig, es kommen also schiefe Kombinationen vor. Es liest sich
-  wie Geplauder, nicht wie Prosa.
+  systembedingt — die Grammatik trägt 0,4 bis 0,8 Bit pro Zeichen. Größere Blöcke
+  wurden gemessen und verworfen: die Parity wächst mit der Blockgröße mit, 8 Byte
+  ergaben bei jeder getesteten Länge den kürzesten Cover.
+- Die Sätze sind schablonenerzeugt und paaren Wörter zufällig, es kommen also
+  schiefe Kombinationen vor. Es liest sich wie Geplauder, nicht wie Prosa.
 - Die Blockerkennung hängt an einer 8-Bit-CRC; eine zufällige Satzfolge wird mit
-  ~1/256 fälschlich als Block gelesen. Ein Fehltreffer verdirbt die Nutzlast, das
-  GCM-Tag weist die Nachricht dann ab statt falschen Klartext zu liefern.
+  ~1/256 fälschlich als Block gelesen. Das GCM-Tag weist die Nachricht dann ab,
+  statt falschen Klartext zu liefern.
 
 ---
 
@@ -446,12 +367,9 @@ NACK, Manifest-Redundanz, Resynchronisation, Transportschäden,
 Grammatik-Konsistenz), danach kodiert jede Implementierung und die andere
 dekodiert — über alle Stufen, Sprachen und Profile, jeder Fall mit einer
 *anderen* Themenwahl, damit ein ins Bit-Layout durchgeschlagenes Thema den Build
-umwirft. Dann die Wortlisten: Nomen über alle Themen eindeutig, Slots die sich
-eine Position teilen können nie ein Wort gemeinsam, und beide Implementierungen
-byte-gleich. Zuletzt, dass die Passphrasen-Regel auf beiden Seiten identisch
-urteilt. `tests/engine.mjs` lädt
-die Browser-Engine direkt aus `cover_studio.html`, getestet wird also der
-ausgelieferte Code.
+umwirft. Zuletzt, dass Wortlisten und Passphrasen-Regel auf beiden Seiten
+identisch sind. `tests/engine.mjs` lädt die Browser-Engine direkt aus
+`cover_studio.html`, getestet wird also der ausgelieferte Code.
 
 ---
 
