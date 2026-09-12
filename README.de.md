@@ -299,6 +299,16 @@ ein beim Kopieren aufgeschnapptes Leerzeichen bricht also die Entschlüsselung.
 
 ## Senden über JS8Call
 
+> ⚠️ **Im Amateurfunk sind Verschlüsselung und verschleierte Aussendungen nicht
+> zulässig.** Der Inhalt einer Aussendung muss offen und für jeden Mithörer
+> nachvollziehbar sein — ihn zu verschlüsseln oder in harmlosem Geplauder zu
+> verstecken ist genau das, was die Bestimmungen untersagen. Geregelt wird das
+> von jeder Verwaltung selbst (in Deutschland die Amateurfunkverordnung, in den
+> USA FCC Part 97, anderswo entsprechend), deshalb **vor dem Senden die für dich
+> geltenden Vorschriften prüfen.** Auf den Amateurfunkbändern ist dieses Werkzeug
+> eine Demonstration; über Chat, E-Mail oder andere Wege außerhalb des
+> Amateurfunks gilt die Einschränkung nicht.
+
 **Nur die Cover-Sätze einfügen, sonst nichts.** JS8Call sendet dein Rufzeichen
 selbst — du tippst dort Nachrichtentext, keinen Header. Also kein `DE <call>`
 davorsetzen, und niemals ein fremdes Rufzeichen senden: das ist überall dort
@@ -388,3 +398,7 @@ MIT — siehe [LICENSE](LICENSE).
 - **Der Cover verbirgt *Inhalt und die Tatsache, dass es Inhalt gibt*, aber nicht zwingend, *dass zwei Parteien kommunizieren*.** Metadaten (wer mit wem, wann, wie viel) sind ein eigenes Problem.
 - **Die Tarnung hält keiner statistischen Prüfung stand.** Alle Sätze einer Stufe folgen einer Schablone, ein langer Cover ist auffällig repetitiv. Gegen flüchtiges Lesen wirkt das, gegen jemanden der gezielt sucht nicht.
 - **Nicht auditiert.** Proof of Concept. Keine Gewähr.
+- **Rechtlich:** Im Amateurfunk sind verschlüsselte oder verschleierte
+  Aussendungen nicht erlaubt. Was zulässig ist, richtet sich nach den
+  Bestimmungen deines Landes — vor dem Senden prüfen. Siehe
+  [Senden über JS8Call](#senden-über-js8call).

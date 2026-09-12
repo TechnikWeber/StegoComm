@@ -289,6 +289,16 @@ space picked up while copying will break decryption.
 
 ## Sending over JS8Call
 
+> ⚠️ **Encryption and obscured transmissions are not permitted in amateur radio.**
+> Amateur service rules require the content of a transmission to be in the clear
+> and intelligible to anyone listening — encrypting it or hiding it in innocuous
+> chatter is exactly what they forbid. The details are set by each country's own
+> administration (in Germany the Amateurfunkverordnung, in the US FCC Part 97,
+> elsewhere the national equivalent), so **check the regulations that apply to
+> you before putting this on the air.** On the amateur bands, treat this tool as
+> a demonstration; over chat, e-mail or other non-amateur paths the restriction
+> does not apply.
+
 **Paste only the cover sentences. Nothing else.** JS8Call puts your own callsign
 on the air itself — you type message text, not a header. Do not prepend `DE
 <call>`, and never send a callsign that is not yours: that is illegal wherever
@@ -377,3 +387,6 @@ MIT — see [LICENSE](LICENSE).
 - **The cover hides *content and the fact that content exists*, but not necessarily *that two parties communicate*.** Metadata (who talks to whom, when, how much) is a separate problem.
 - **The disguise does not survive statistical scrutiny.** Every sentence at a level follows one template, so a long cover is conspicuously repetitive. It works against a casual reader, not against someone looking for it.
 - **Not audited.** Proof of concept. No warranty.
+- **Legal:** amateur radio does not allow encrypted or obscured transmissions.
+  What is permitted depends on your national regulations — check them before
+  transmitting. See [Sending over JS8Call](#sending-over-js8call).
