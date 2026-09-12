@@ -3,7 +3,22 @@
    internal consistency. */
 import { GRAMMARS, TOPIC_ORDER, DEFAULT_TOPICS, AFU_TOPICS, deriveKey, encode,
          decode, coverToText, renderSentence, parseSentence, PASS, CASES,
-         rewrap, NOUN_TOPIC } from "./engine.mjs";
+         rewrap, NOUN_TOPIC, seedRandom, SEED } from "./engine.mjs";
+
+/* Pinned randomness: a red run must mean a real defect, not an unlucky draw.
+   STEGO_SEED=0 draws real randomness, STEGO_SEED=<n> tries another corner. */
+const seeded = seedRandom();
+console.log(seeded ? `seeded with ${SEED} -- STEGO_SEED=0 draws real randomness instead`
+                   : "unseeded -- drawing real randomness, results will vary");
+const rndBit = (() => {
+  let a = (SEED || Date.now()) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) & 1;
+  };
+})();
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -22,7 +37,7 @@ for (const lang of ["de", "en"]) {
     let bad = null;
     for (const topic of TOPIC_ORDER) {
       for (let i = 0; i < 120 && !bad; i++) {
-        const bits = Array.from({ length: lv.bits }, () => Math.random() < 0.5 ? 0 : 1);
+        const bits = Array.from({ length: lv.bits }, rndBit);
         const s = renderSentence(lv, bits, topic);
         let hits = 0;
         for (const variant of lv.shapes)

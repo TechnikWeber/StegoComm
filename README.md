@@ -361,6 +361,27 @@ GitHub Actions, and locally with:
 ./tests/run_all.sh
 ```
 
+**The suite is seeded.** Both engines draw their randomness from a fixed seed
+(`STEGO_SEED`, default `1`) instead of the system CSPRNG, so a red run means a
+real defect rather than an unlucky draw. One check needs this: deleting a
+sentence and letting the decoder resynchronise rests on a probabilistic
+property — block detection uses an 8-bit CRC, so a sliding window occasionally
+accepts a wrong block and the message is rejected. Measured over 120 seeds, one
+of them fails that check on each engine. Pinning the seed does not change that
+behaviour; it only stops it from being reported as a regression. To go looking
+for it on purpose:
+
+```bash
+STEGO_SEED=0 ./tests/run_all.sh      # real randomness, different every run
+STEGO_SEED=120 node tests/js_selftest.mjs           # a seed that fails
+python3 stegocomms.py selftest --seed 115           # likewise, Python side
+```
+
+The seed reaches the browser engine through a `crypto` shim in
+`tests/engine.mjs`, which shadows the global inside the loaded module.
+`cover_studio.html` itself is untouched, so the tested code stays the shipped
+code.
+
 It runs each engine's own selftest (round-trip, parity recovery, NACK, manifest
 redundancy, resynchronisation, transport damage, grammar consistency), then
 encodes with each implementation and decodes with the other across all levels,

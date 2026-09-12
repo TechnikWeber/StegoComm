@@ -11,6 +11,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import stegocomms as sc                                    # noqa: E402
 
+# Same pinned randomness as the selftest, so a red cross-check means the two
+# implementations really disagree. STEGO_SEED=0 draws real randomness.
+sc._use_seeded_random(sc.SELFTEST_SEED)
+
 PASS = "harbour-lantern-quiet-seven"
 
 # Must stay identical to CASES in tests/engine.mjs.

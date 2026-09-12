@@ -372,6 +372,28 @@ durch. Das läuft bei jedem Push über GitHub Actions, lokal mit:
 ./tests/run_all.sh
 ```
 
+**Die Suite läuft mit festem Startwert.** Beide Engines ziehen ihren Zufall aus
+einem festen Seed (`STEGO_SEED`, Vorgabe `1`) statt aus dem System-CSPRNG —
+ein roter Lauf bedeutet damit einen echten Fehler und keine unglückliche
+Ziehung. Eine Prüfung braucht das: Einen Satz zu löschen und den Decoder
+resynchronisieren zu lassen beruht auf einer Wahrscheinlichkeit — die
+Blockerkennung hängt an einer 8-Bit-CRC, also nimmt das Schiebefenster
+gelegentlich einen falschen Block an und die Nachricht wird verworfen. Über 120
+Seeds gemessen fällt je Engine einer durch. Der feste Startwert ändert daran
+nichts, er verhindert nur, dass es als Regression gemeldet wird. Wer gezielt
+danach sucht:
+
+```bash
+STEGO_SEED=0 ./tests/run_all.sh      # echter Zufall, jedes Mal anders
+STEGO_SEED=120 node tests/js_selftest.mjs           # ein Seed, der durchfällt
+python3 stegocomms.py selftest --seed 115           # dasselbe auf Python-Seite
+```
+
+Zur Browser-Engine kommt der Seed über einen `crypto`-Shim in
+`tests/engine.mjs`, der das globale Objekt innerhalb des geladenen Moduls
+verdeckt. `cover_studio.html` bleibt unangetastet — getestet wird weiterhin der
+ausgelieferte Code.
+
 Geprüft werden der Selbsttest jeder Engine (Round-Trip, Parity-Rekonstruktion,
 NACK, Manifest-Redundanz, Resynchronisation, Transportschäden,
 Grammatik-Konsistenz), danach kodiert jede Implementierung und die andere

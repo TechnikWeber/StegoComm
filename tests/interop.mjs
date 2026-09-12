@@ -5,7 +5,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { deriveKey, encode, decode, coverToText, PASS, CASES,
-         TOPIC_ORDER, AFU_TOPICS } from "./engine.mjs";
+         TOPIC_ORDER, AFU_TOPICS, seedRandom } from "./engine.mjs";
+
+/* Same pinned randomness as the selftest, so a red cross-check means the two
+   implementations really disagree. */
+seedRandom();
 
 const [mode, dir] = process.argv.slice(2);
 if (!["write", "verify"].includes(mode) || !dir) {
