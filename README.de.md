@@ -407,7 +407,7 @@ identisch sind. `tests/engine.mjs` lädt die Browser-Engine direkt aus
 
 ## Lizenz
 
-MIT — siehe [LICENSE](LICENSE).
+[MIT](LICENSE).
 
 ---
 

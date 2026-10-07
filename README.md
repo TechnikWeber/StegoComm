@@ -395,7 +395,7 @@ is the shipped code.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE).
 
 ---
 
