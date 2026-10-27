@@ -1,5 +1,3 @@
-**English** · [Deutsch](README.de.md)
-
 # StegoComm
 
 [![tests](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml/badge.svg)](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml)
