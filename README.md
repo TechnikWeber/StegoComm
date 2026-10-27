@@ -1,6 +1,12 @@
 # StegoComm
 
-[![tests](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml/badge.svg)](https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml)
+<p>
+  <img alt="Status: proof of concept" src="https://img.shields.io/badge/status-proof%20of%20concept-lightgrey">
+  <a href="https://github.com/TechnikWeber/StegoComm/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TechnikWeber/StegoComm?include_prereleases&label=release"></a>
+  <a href="https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/TechnikWeber/StegoComm/ci.yml?branch=main&label=tests"></a>
+  <img alt="Platform: browser | Python CLI" src="https://img.shields.io/badge/platform-browser%20%7C%20Python%20CLI-blue">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
+</p>
 
 **A proof-of-concept covert, encrypted messaging channel that hides ciphertext inside innocuous-looking chatter.**
 
