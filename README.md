@@ -216,7 +216,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-On Fedora you may instead use the system package: `sudo dnf install python3-cryptography`.
+You may instead use the system package: `sudo dnf install python3-cryptography` (Fedora) or `sudo apt install python3-cryptography` (Debian/Ubuntu).
 (A bare `pip install --user cryptography` also works unless your distro reports `externally-managed-environment` — then use the venv above.)
 
 ## Usage
