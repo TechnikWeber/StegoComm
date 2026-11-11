@@ -1,0 +1,24 @@
+# On a version tag: attach the browser tool and the Python CLI as single files, plus
+# SHA256SUMS, so nobody has to clone the repository to use them.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum cover_studio.html stegocomms.py > SHA256SUMS
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" cover_studio.html stegocomms.py SHA256SUMS --clobber
