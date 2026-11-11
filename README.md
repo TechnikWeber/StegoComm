@@ -33,6 +33,8 @@ live count of how much it inflates your message.*
 
 ---
 
+**Contents:** [How it works](#how-it-works) · [What it does in detail](#what-it-does-in-detail) · [Install](#install) · [Usage](#usage) · [Sending over JS8Call](#sending-over-js8call) · [Wire format v5](#wire-format-v5) · [Running the tests](#running-the-tests) · [License](#license) · [Security notes](#security-notes)
+
 ## How it works
 
 Five steps down, the same five back up. Only the last one is unusual — the first
