@@ -2,7 +2,8 @@
 
 <p>
   <img alt="Status: proof of concept" src="https://img.shields.io/badge/status-proof%20of%20concept-lightgrey">
-  <a href="https://github.com/TechnikWeber/StegoComm/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TechnikWeber/StegoComm?include_prereleases&label=release"></a>
+  <a href="https://github.com/TechnikWeber/StegoComm/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/TechnikWeber/StegoComm?label=download&color=2ea44f"></a>
+  <a href="https://github.com/TechnikWeber/StegoComm/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/TechnikWeber/StegoComm/total?color=blue"></a>
   <a href="https://github.com/TechnikWeber/StegoComm/actions/workflows/ci.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/TechnikWeber/StegoComm/ci.yml?branch=main&label=tests"></a>
   <img alt="Platform: browser | Python CLI" src="https://img.shields.io/badge/platform-browser%20%7C%20Python%20CLI-blue">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -202,7 +203,7 @@ Neither the language nor the level is stored anywhere — the decoder tries all 
 
 ## Install
 
-**Browser tool — nothing to install.** Just open `cover_studio.html`:
+**Browser tool — nothing to install.** Download `cover_studio.html` from the [latest release](https://github.com/TechnikWeber/StegoComm/releases/latest) (or use the one in a clone) and open it:
 
 ```bash
 xdg-open cover_studio.html        # Linux
